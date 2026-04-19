@@ -1,0 +1,2885 @@
+﻿#include <iostream> //这是一个整合版的程序
+#include <memory>
+#include <map>
+#include <set>
+#include <vector>
+#include <queue>
+#include <unordered_map>
+#include <string>
+#include <fstream>
+#include <sstream>
+#include <algorithm>
+#include <random>
+#include <chrono>
+#include <iomanip>
+#include <cmath>
+#include <ctime>
+
+struct Point {
+   int x;
+   int y;
+};
+using POINT = Point;
+
+// Forward declarations
+class AbstractNode;
+class Edge;
+class Passenger;
+
+// 路径规划策略枚举
+enum class PathStrategy {
+   SHORTEST_DISTANCE,
+   SHORTEST_TIME,
+   MULTI_OBJECTIVE_OPTIMIZATION
+};
+
+int safeStoi(const std::string& str, int defaultVal = 0) {
+   if (str.empty() || str == " " || str == "\"\"") return defaultVal;
+   try {
+       std::string cleaned = str;
+       if (!cleaned.empty() && cleaned.front() == '"') cleaned = cleaned.substr(1);
+       if (!cleaned.empty() && cleaned.back() == '"') cleaned.pop_back();
+       if (cleaned.empty()) return defaultVal;
+       return std::stoi(cleaned);
+   }
+   catch (...) {
+       return defaultVal;
+   }
+}
+
+double safeStod(const std::string& str, double defaultVal = 0.0) {
+   if (str.empty() || str == " " || str == "\"\"") return defaultVal;
+   try {
+       std::string cleaned = str;
+       if (!cleaned.empty() && cleaned.front() == '"') cleaned = cleaned.substr(1);
+       if (!cleaned.empty() && cleaned.back() == '"') cleaned.pop_back();
+       if (cleaned.empty()) return defaultVal;
+       return std::stod(cleaned);
+   }
+   catch (...) {
+       return defaultVal;
+   }
+}
+
+class Edge {
+private:
+   int toIndex;
+   double length;
+   double width;
+   double baseVelocity;
+   bool isEscalator;
+   int maxConcurrentOccupancy;
+   mutable int currentOccupancy;
+   mutable double congestionLevel;
+
+   void calculateCapacity() {
+       maxConcurrentOccupancy = static_cast<int>(std::ceil(width / 0.5));
+       if (maxConcurrentOccupancy < 1) maxConcurrentOccupancy = 1;
+   }
+
+public:
+   Edge() : toIndex(-1), length(10.0), width(2.0), baseVelocity(1.0), isEscalator(false),
+       maxConcurrentOccupancy(4), currentOccupancy(0), congestionLevel(0.0) {
+       calculateCapacity();
+   }
+
+   int getToIndex() const { return toIndex; }
+   void setToIndex(int idx) { toIndex = idx; }
+
+   double getLength() const { return length; }
+   void setLength(double l) { length = l; }
+
+   double getWidth() const { return width; }
+   void setWidth(double w) { width = w; calculateCapacity(); }
+
+   double getBaseVelocity() const { return baseVelocity; }
+   void setBaseVelocity(double v) { baseVelocity = v; }
+
+   bool getIsEscalator() const { return isEscalator; }
+   void setIsEscalator(bool e) { isEscalator = e; }
+
+   int getCapacity() const { return maxConcurrentOccupancy; }
+
+   bool tryEnterEdge() const { return currentOccupancy < maxConcurrentOccupancy; }
+
+   void addOccupant() const { currentOccupancy++; updateCongestion(); }
+   void removeOccupant() const { if (currentOccupancy > 0) currentOccupancy--; updateCongestion(); }
+
+   double getCongestionLevel() const { return congestionLevel; }
+
+   void updateCongestion() const {
+       if (maxConcurrentOccupancy > 0) {
+           congestionLevel = static_cast<double>(currentOccupancy) / maxConcurrentOccupancy;
+           if (congestionLevel > 1.0) congestionLevel = 1.0;
+       }
+   }
+
+   bool canEnter() const { return tryEnterEdge(); }
+
+   double getPassThroughTime() const {
+       double effectiveVelocity = baseVelocity * (isEscalator ? 2.0 : 1.0);
+       double congestionPenalty = 1.0 - (congestionLevel * 0.5);
+       effectiveVelocity *= congestionPenalty;
+       return (effectiveVelocity > 0.001) ? (length / effectiveVelocity) : 999.0;
+   }
+};
+
+// Abstract Node base class
+class AbstractNode {
+protected:
+   std::string id;
+   int floor;
+   POINT pos;
+   int capacity;
+   int currentLoad;
+   double baseVelocity;
+   double congestionFactor;
+   double congestionSensitivity;
+
+   // 队列相关属性
+   std::queue<int> waitingQueue;        // 排队队列
+   std::set<int> servingPassengers;     // 正在服务的乘客
+   double serviceRate;                  // 服务速率（人/秒）
+   double serviceTimer;                 // 服务计时器
+   int maxSimultaneousServices;         // 最大同时服务能力
+
+   // 碰撞策略新增：网格化空间表示
+   std::vector<std::vector<int>> occupancyGrid; // 网格占用状态：-1=障碍物, 0=空闲, >0=乘客ID
+   int gridWidth;
+   int gridHeight;
+   double cellSize; // 单元格物理尺寸 (米)
+
+public:
+   AbstractNode(const std::string& nodeId, int nodeFloor, POINT position, int cap,
+       double vel, double sensitivity = 1.0, double sRate = 1.0, int maxServ = 1)
+       : id(nodeId), floor(nodeFloor), pos(position), capacity(cap), currentLoad(0),
+       baseVelocity(vel), congestionFactor(0.0), congestionSensitivity(sensitivity),
+       serviceRate(sRate), serviceTimer(0.0), maxSimultaneousServices(maxServ),
+       gridWidth(20), gridHeight(20), cellSize(0.5) { // 初始化网格大小和单元格尺寸
+       initializeGrid();
+   }
+
+   virtual ~AbstractNode() = default;
+
+   // Getters
+   std::string getId() const { return id; }
+   int getFloor() const { return floor; }
+   POINT getPos() const { return pos; }
+   int getCapacity() const { return capacity; }
+   int getCurrentLoad() const { return currentLoad; }
+   double getBaseVelocity() const { return baseVelocity; }
+   double getVelocity() const { return baseVelocity * (1.0 - congestionFactor * 0.8); }
+   double getCongestionFactor() const { return congestionFactor; }
+   double getCongestionSensitivity() const { return congestionSensitivity; }
+
+   // Grid相关getter方法
+   int getGridWidth() const { return gridWidth; }
+   int getGridHeight() const { return gridHeight; }
+   double getCellSize() const { return cellSize; }
+
+   // Setters
+   void setId(const std::string& val) { id = val; }
+   void setFloor(int val) { floor = val; }
+   void setPos(const POINT& val) { pos = val; }
+   void setCapacity(int val) { if (val > 0) capacity = val; }
+   void setBaseVelocity(double val) { if (val > 0) baseVelocity = val; }
+   void setCongestionSensitivity(double val) { if (val >= 1.0 && val <= 3.0) congestionSensitivity = val; }
+
+   // 碰撞策略新增：初始化网格
+   void initializeGrid() {
+       occupancyGrid.assign(gridWidth, std::vector<int>(gridHeight, 0));
+       // 假设四周是障碍物
+       for (int i = 0; i < gridWidth; ++i) {
+           occupancyGrid[i][0] = -1;
+           occupancyGrid[i][gridHeight - 1] = -1;
+       }
+       for (int j = 0; j < gridHeight; ++j) {
+           occupancyGrid[0][j] = -1;
+           occupancyGrid[gridWidth - 1][j] = -1;
+       }
+   }
+
+   // 碰撞策略新增：网格操作
+   bool isCellValid(int x, int y) const {
+       return x >= 0 && x < gridWidth && y >= 0 && y < gridHeight;
+   }
+
+   bool isCellOccupied(int x, int y) const {
+       if (!isCellValid(x, y)) return true; // 边界视为被占用
+       return occupancyGrid[x][y] != 0;
+   }
+
+   bool isCellObstacle(int x, int y) const {
+       if (!isCellValid(x, y)) return true; // 边界视为障碍
+       return occupancyGrid[x][y] == -1;
+   }
+
+   bool occupyCell(int x, int y, int passengerId) {
+       if (!isCellValid(x, y) || isCellOccupied(x, y)) return false;
+       occupancyGrid[x][y] = passengerId;
+       onPassengerArrive();
+       return true;
+   }
+
+   bool releaseCell(int x, int y) {
+       if (!isCellValid(x, y) || occupancyGrid[x][y] <= 0) return false;
+       occupancyGrid[x][y] = 0;
+       onPassengerLeave();
+       return true;
+   }
+
+   bool moveCell(int from_x, int from_y, int to_x, int to_y, int passengerId) {
+       if (!isCellValid(to_x, to_y) || isCellOccupied(to_x, to_y)) return false;
+       if (!isCellValid(from_x, from_y) || occupancyGrid[from_x][from_y] != passengerId) return false;
+       occupancyGrid[from_x][from_y] = 0;
+       occupancyGrid[to_x][to_y] = passengerId;
+       return true;
+   }
+
+   // 排队相关方法
+   bool canJoinQueue() const {
+       // 考虑队列长度和拥堵情况
+       return waitingQueue.size() < capacity * 0.8 &&
+           getCongestionFactor() < 0.9;
+   }
+
+   bool joinQueue(int passengerId) {
+       if (canJoinQueue()) {
+           waitingQueue.push(passengerId);
+           return true;
+       }
+       return false;
+   }
+
+   int serveNextPassenger() {
+       if (!waitingQueue.empty() && servingPassengers.size() < maxSimultaneousServices) {
+           int passengerId = waitingQueue.front();
+           waitingQueue.pop();
+           servingPassengers.insert(passengerId);
+           return passengerId;
+       }
+       return -1; // 没有可服务的乘客
+   }
+
+   void completeService(int passengerId) {
+       servingPassengers.erase(passengerId);
+   }
+
+   bool isBeingServed(int passengerId) const {
+       return servingPassengers.count(passengerId) > 0;
+   }
+
+   int getQueueLength() const {
+       return waitingQueue.size();
+   }
+
+   // Passenger event handling
+   virtual void onPassengerArrive() {
+       if (currentLoad < capacity) {
+           ++currentLoad;
+           updateCongestionFactor();
+       }
+   }
+
+   virtual void onPassengerLeave() {
+       if (currentLoad > 0) {
+           --currentLoad;
+           updateCongestionFactor();
+       }
+   }
+
+   // Congestion calculation
+   void updateCongestionFactor() {
+       double ratio = capacity > 0 ? static_cast<double>(currentLoad) / capacity : 0.0;
+       double temp = ratio * congestionSensitivity;
+       congestionFactor = (temp < 1.0) ? temp : 1.0;
+   }
+
+   // Access checks
+   virtual bool canEnter() const { return currentLoad < capacity; }
+   virtual bool canExit(const AbstractNode* nextNode = nullptr, const Edge* connectingEdge = nullptr) const {
+       if (nextNode && !nextNode->canEnter()) { return false; }
+       if (connectingEdge && !connectingEdge->canEnter()) { return false; }
+       return servingPassengers.size() < maxSimultaneousServices * 0.9; // 预留少量服务位
+   }
+
+   // Pass through time calculation (for Node停留时间)
+   virtual double getPassThroughTime() const {
+       double effectiveVel = getVelocity();
+       if (effectiveVel > 0.001) {
+           return (1.0 / effectiveVel) * (1.0 + congestionFactor);
+       }
+       return 999.0;
+   }
+
+   // AbstractNode新增方法：处理乘客从等待队列进入服务
+   void assignServingPassengers() {
+       while (waitingQueue.size() > 0 && servingPassengers.size() < maxSimultaneousServices) {
+           int pid = serveNextPassenger();
+           if (pid == -1) break;
+       }
+   }
+
+   virtual double getServiceInterval() const {
+       return 1.0 / serviceRate;
+   }
+
+   virtual void update(double deltaTime) {
+       assignServingPassengers();
+       updateCongestionFactor();
+   }
+
+   virtual std::string getTypeName() const = 0;
+   virtual std::string getTypeCode() const = 0;
+   virtual void render() const = 0;
+
+   // Serialization
+   virtual std::map<std::string, std::string> toProperties() const {
+       std::map<std::string, std::string> props;
+       props["id"] = id;
+       props["type"] = getTypeCode();
+       props["floor"] = std::to_string(floor);
+       props["x"] = std::to_string(pos.x);
+       props["y"] = std::to_string(pos.y);
+       props["capacity"] = std::to_string(capacity);
+       props["baseVelocity"] = std::to_string(baseVelocity);
+       props["congestionFactor"] = std::to_string(congestionFactor);
+       props["congestionSensitivity"] = std::to_string(congestionSensitivity);
+       props["currentLoad"] = std::to_string(currentLoad);
+       return props;
+   }
+
+   virtual void fromProperties(const std::map<std::string, std::string>& props) {
+       auto get = [&](const std::string& key) -> std::string {
+           auto it = props.find(key);
+           return it != props.end() ? it->second : "";
+           };
+       if (!get("id").empty()) id = get("id");
+       if (!get("floor").empty()) setFloor(safeStoi(get("floor")));
+       if (!get("x").empty() && !get("y").empty()) {
+           pos = { safeStoi(get("x")), safeStoi(get("y")) };
+       }
+       if (!get("capacity").empty()) setCapacity(safeStoi(get("capacity")));
+       if (!get("baseVelocity").empty()) setBaseVelocity(safeStod(get("baseVelocity")));
+       if (!get("congestionFactor").empty()) congestionFactor = safeStod(get("congestionFactor"));
+       if (!get("congestionSensitivity").empty()) setCongestionSensitivity(safeStod(get("congestionSensitivity")));
+       if (!get("currentLoad").empty()) currentLoad = safeStoi(get("currentLoad"));
+   }
+};
+
+// Specialized node types (CorridorNode and EscalatorNode REMOVED)
+
+class HallNode : public AbstractNode {
+public:
+   HallNode(const std::string& id, int floor, POINT pos, int cap, double vel, double sens)
+       : AbstractNode(id, floor, pos, cap, vel, sens, 2.0, 1) {}
+
+   std::string getTypeName() const override { return "站厅"; }
+   std::string getTypeCode() const override { return "HALL"; }
+   void render() const override {
+       std::cout << "站厅: " << id << ", 人数: " << currentLoad << ", 拥堵: " << congestionFactor
+           << ", 队列: " << waitingQueue.size() << std::endl;
+   }
+};
+
+class SecurityNode : public AbstractNode {
+public:
+   int scannerCount;
+   double checkTimePerPerson;
+   bool hasBannedItem;
+   SecurityNode(const std::string& id, int floor, POINT pos, int cap, double vel, double sens, int scanners, double timePerPerson, bool banned)
+       : AbstractNode(id, floor, pos, cap, vel, sens, 1.0 / timePerPerson, scanners),
+       scannerCount(scanners), checkTimePerPerson(timePerPerson), hasBannedItem(banned) {}
+
+   double getServiceInterval() const override { return checkTimePerPerson; }
+
+   std::string getTypeName() const override { return "安检"; }
+   std::string getTypeCode() const override { return "SECURITY"; }
+   void render() const override {
+       std::cout << "安检: " << id << ", 人数: " << currentLoad << ", 拥堵: " << congestionFactor
+           << ", 队列: " << waitingQueue.size() << std::endl;
+   }
+   std::map<std::string, std::string> toProperties() const override {
+       auto props = AbstractNode::toProperties();
+       props["scannerCount"] = std::to_string(scannerCount);
+       props["checkTimePerPerson"] = std::to_string(checkTimePerPerson);
+       props["hasBannedItem"] = hasBannedItem ? "1" : "0";
+       return props;
+   }
+};
+
+class TicketNode : public AbstractNode {
+public:
+   int windowCount;
+   double buyTimePerPerson;
+   bool hasAutoMachine;
+   TicketNode(const std::string& id, int floor, POINT pos, int cap, double vel, double sens, int windows, double timePerPerson, bool autoMachine)
+       : AbstractNode(id, floor, pos, cap, vel, sens, 1.0 / timePerPerson, windows),
+       windowCount(windows), buyTimePerPerson(timePerPerson), hasAutoMachine(autoMachine) {}
+
+   double getServiceInterval() const override { return buyTimePerPerson; }
+
+   std::string getTypeName() const override { return "售票"; }
+   std::string getTypeCode() const override { return "TICKET"; }
+   void render() const override {
+       std::cout << "售票: " << id << ", 人数: " << currentLoad << ", 拥堵: " << congestionFactor
+           << ", 队列: " << waitingQueue.size() << std::endl;
+   }
+   std::map<std::string, std::string> toProperties() const override {
+       auto props = AbstractNode::toProperties();
+       props["windowCount"] = std::to_string(windowCount);
+       props["buyTimePerPerson"] = std::to_string(buyTimePerPerson);
+       props["hasAutoMachine"] = hasAutoMachine ? "1" : "0";
+       return props;
+   }
+};
+
+class GateNode : public AbstractNode {
+public:
+   int gateCount;
+   bool isBidirectional;
+   GateNode(const std::string& id, int floor, POINT pos, int cap, double vel, double sens, int gates, bool bidir)
+       : AbstractNode(id, floor, pos, cap, vel, sens, 1.0, gates),
+       gateCount(gates), isBidirectional(bidir) {}
+
+   double getServiceInterval() const override { return 1.0; }
+
+   std::string getTypeName() const override { return "闸机"; }
+   std::string getTypeCode() const override { return "GATE"; }
+   void render() const override {
+       std::cout << "闸机: " << id << ", 人数: " << currentLoad << ", 拥堵: " << congestionFactor
+           << ", 队列: " << waitingQueue.size() << std::endl;
+   }
+   std::map<std::string, std::string> toProperties() const override {
+       auto props = AbstractNode::toProperties();
+       props["gateCount"] = std::to_string(gateCount);
+       props["isBidirectional"] = isBidirectional ? "1" : "0";
+       return props;
+   }
+};
+
+class ExitNode : public AbstractNode {
+public:
+   std::string exitName;
+   std::string connectedStreet;
+   bool isOneWay;
+   int totalExits;
+   ExitNode(const std::string& id, int floor, POINT pos, int cap, double vel, double sens, const std::string& name, const std::string& street, bool oneWay, int total)
+       : AbstractNode(id, floor, pos, cap, vel, sens, 1.0, total),
+       exitName(name), connectedStreet(street), isOneWay(oneWay), totalExits(total) {}
+
+   double getServiceInterval() const override { return 1.0; }
+
+   std::string getTypeName() const override { return "出口"; }
+   std::string getTypeCode() const override { return "EXIT"; }
+   void render() const override {
+       std::cout << "出口: " << id << ", 人数: " << currentLoad << ", 拥堵: " << congestionFactor
+           << ", 队列: " << waitingQueue.size() << std::endl;
+   }
+   std::map<std::string, std::string> toProperties() const override {
+       auto props = AbstractNode::toProperties();
+       props["exitName"] = exitName;
+       props["connectedStreet"] = connectedStreet;
+       props["isOneWay"] = isOneWay ? "1" : "0";
+       props["totalExits"] = std::to_string(totalExits);
+       return props;
+   }
+};
+
+class PlatformNode : public AbstractNode {
+public:
+   std::string lineName;
+   int direction;
+   int waitCap;
+   bool hasScreenDoor;
+   double nextTrainIn;
+   bool isTrainArriving;
+   double doorOpenTimer;
+   static constexpr double DOOR_OPEN_DURATION = 30.0;
+
+   PlatformNode(const std::string& id, int floor, POINT pos, int cap, double vel, double sens,
+       const std::string& line, int dir, int waitCap, bool screenDoor, double trainIn)
+       : AbstractNode(id, floor, pos, cap, vel, sens, 0.5, 1),
+       lineName(line), direction(dir), waitCap(waitCap), hasScreenDoor(screenDoor),
+       nextTrainIn(trainIn), isTrainArriving(false), doorOpenTimer(0.0) {}
+
+   void update(double deltaTime) override {
+       handleTrainArrival(deltaTime);
+       AbstractNode::update(deltaTime);
+   }
+
+   std::string getTypeName() const override { return "站台"; }
+   std::string getTypeCode() const override { return "PLATFORM"; }
+   void render() const override {
+       std::cout << "站台: " << id << " (" << lineName << "), 人数: " << currentLoad << ", 拥堵: " << congestionFactor
+           << ", 队列: " << waitingQueue.size() << std::endl;
+   }
+
+
+private:
+   void handleTrainArrival(double deltaTime) {
+       if (doorOpenTimer > 0) {
+           doorOpenTimer -= deltaTime;
+           isTrainArriving = true;
+       }
+       else {
+           nextTrainIn -= deltaTime;
+           if (nextTrainIn <= 0) {
+               isTrainArriving = true;
+               doorOpenTimer = DOOR_OPEN_DURATION;
+               nextTrainIn = 120.0;
+           }
+           else {
+               isTrainArriving = false;
+           }
+       }
+   }
+
+public:
+   // [新增] 获取从列车下来的乘客数量
+   bool isTrainArrivingNow() const {
+       return isTrainArriving;
+   }
+
+   bool canAcceptTrainPassengers() const {
+       return currentLoad < capacity * 0.9;
+   }
+
+   std::map<std::string, std::string> toProperties() const override {
+       auto props = AbstractNode::toProperties();
+       props["lineName"] = lineName;
+       props["direction"] = std::to_string(direction);
+       props["waitCap"] = std::to_string(waitCap);
+       props["hasScreenDoor"] = hasScreenDoor ? "1" : "0";
+       props["nextTrainIn"] = std::to_string(nextTrainIn);
+       return props;
+   }
+
+   void fromProperties(const std::map<std::string, std::string>& props) override {
+       AbstractNode::fromProperties(props);
+       auto get = [&](const std::string& key) -> std::string {
+           auto it = props.find(key);
+           return it != props.end() ? it->second : "";
+           };
+
+       if (!get("lineName").empty()) lineName = get("lineName");
+       if (!get("direction").empty()) direction = safeStoi(get("direction"));
+       if (!get("waitCap").empty()) waitCap = safeStoi(get("waitCap"));
+       if (!get("hasScreenDoor").empty()) hasScreenDoor = (get("hasScreenDoor") == "1");
+       if (!get("nextTrainIn").empty()) nextTrainIn = safeStod(get("nextTrainIn"));
+   }
+
+};
+
+class StairNode : public AbstractNode {
+public:
+   int stepCount;
+   int direction; // 0: down, 1: up
+
+   StairNode(const std::string& id, int floor, POINT pos, int cap, double vel, double sens, int steps, int dir)
+       : AbstractNode(id, floor, pos, cap, vel, sens, 0.8, 2), stepCount(steps), direction(dir) {}
+
+   std::string getTypeName() const override { return "楼梯"; }
+   std::string getTypeCode() const override { return "STAIR"; }
+
+   void render() const override {
+       std::cout << "楼梯: " << id << ", 人数: " << currentLoad << ", 拥堵: " << congestionFactor
+           << ", 队列: " << waitingQueue.size() << std::endl;
+   }
+
+   std::map<std::string, std::string> toProperties() const override {
+       auto props = AbstractNode::toProperties();
+       props["stepCount"] = std::to_string(stepCount);
+       props["direction"] = std::to_string(direction);
+       return props;
+   }
+};
+
+class NodeFactory {
+public:
+   static std::unique_ptr<AbstractNode> createNode(const std::string& typeCode, const std::map<std::string, std::string>& props) {
+       std::string id = props.at("id");
+       int floor = safeStoi(props.at("floor"));
+       POINT pos = { safeStoi(props.at("x")), safeStoi(props.at("y")) };
+       int cap = safeStoi(props.at("capacity"));
+       double vel = safeStod(props.at("baseVelocity"));
+       double sens = safeStod(props.at("sensitivity"));
+
+       if (typeCode == "HALL") {
+           return std::make_unique<HallNode>(id, floor, pos, cap, vel, sens);
+       }
+       if (typeCode == "SECURITY") {
+           int scanners = safeStoi(props.at("scannerCount"));
+           double t = safeStod(props.at("checkTimePerPerson"));
+           bool hasBanned = (props.at("hasBannedItem") == "1");
+           return std::make_unique<SecurityNode>(id, floor, pos, cap, vel, sens, scanners, t, hasBanned);
+       }
+       if (typeCode == "TICKET") {
+           int win = safeStoi(props.at("windowCount"));
+           double t = safeStod(props.at("buyTimePerPerson"));
+           bool hasAuto = (props.at("hasAutoMachine") == "1");
+           return std::make_unique<TicketNode>(id, floor, pos, cap, vel, sens, win, t, hasAuto);
+       }
+       if (typeCode == "GATE") {
+           int g = safeStoi(props.at("gateCount"));
+           bool bidir = (props.at("isBidirectional") == "1");
+           return std::make_unique<GateNode>(id, floor, pos, cap, vel, sens, g, bidir);
+       }
+       if (typeCode == "EXIT") {
+           int total = safeStoi(props.at("totalExits"));
+           return std::make_unique<ExitNode>(id, floor, pos, cap, vel, sens, props.at("exitName"), props.at("connectedStreet"), props.at("isOneWay") == "1", total);
+       }
+       if (typeCode == "PLATFORM") {
+           // [修改] 确保PlatformNode构造函数参数正确传递
+           return std::make_unique<PlatformNode>(id, floor, pos, cap, vel, sens,
+               props.at("lineName"), safeStoi(props.at("direction")),
+               safeStoi(props.at("waitCap")),
+               props.at("hasScreenDoor") == "1",
+               safeStod(props.at("nextTrainIn")));
+       }
+       if (typeCode == "STAIR") {
+           return std::make_unique<StairNode>(id, floor, pos, cap, vel, sens, safeStoi(props.at("stepCount")), safeStoi(props.at("direction")));
+       }
+       return nullptr;
+   }
+};
+
+// --- Subway Graph Class ---
+class SubwayGraph {
+private:
+   std::vector<std::unique_ptr<AbstractNode>> nodes_;
+   mutable std::vector<std::vector<Edge>> adjList_;
+   std::unordered_map<std::string, int> idToIndex_;
+   std::vector<std::string> indexToId_;
+
+   mutable std::vector<double> pathDist_;
+   mutable std::vector<int> pathPrev_;
+   mutable std::vector<bool> pathVisited_;
+   mutable std::vector<bool> estVisited_;
+   mutable std::vector<int> estLevel_;
+   mutable std::queue<int> estQueue_;
+   mutable std::vector<std::pair<double, int>> pqContainer_;
+
+   mutable std::vector<double> congestionCache_;
+   mutable int congestionCacheFrame_ = -1;
+   mutable int currentFrame_ = 0;
+
+   void ensurePathBuffers() const {
+       size_t n = nodes_.size();
+       if (pathDist_.size() != n) {
+           pathDist_.resize(n);
+           pathPrev_.resize(n);
+           pathVisited_.resize(n);
+           estVisited_.resize(n);
+           estLevel_.resize(n);
+           congestionCache_.resize(n, 0.0);
+       }
+   }
+
+   void resetPathBuffers(double infVal) const {
+       ensurePathBuffers();
+       size_t n = nodes_.size();
+       std::fill(pathDist_.begin(), pathDist_.end(), infVal);
+       std::fill(pathPrev_.begin(), pathPrev_.end(), -1);
+       std::fill(pathVisited_.begin(), pathVisited_.end(), false);
+   }
+
+   void rebuildCongestionCache() const {
+       size_t n = nodes_.size();
+       if (congestionCache_.size() != n) congestionCache_.resize(n, 0.0);
+       for (size_t i = 0; i < n; ++i) {
+           if (nodes_[i]) {
+               congestionCache_[i] = nodes_[i]->getCongestionFactor();
+           }
+       }
+       congestionCacheFrame_ = currentFrame_;
+   }
+
+   // 修正后的最短距离路径规划
+   std::vector<int> shortestDistancePath(int startIdx, int endIdx) const {
+       if (startIdx < 0 || endIdx < 0 || startIdx >= nodes_.size() || endIdx >= nodes_.size()) {
+           return {};
+       }
+
+       const double INF = 1e18;
+       resetPathBuffers(INF);
+       pathDist_[startIdx] = 0.0;
+
+       pqContainer_.clear();
+       pqContainer_.emplace_back(0.0, startIdx);
+
+       while (!pqContainer_.empty()) {
+           std::pop_heap(pqContainer_.begin(), pqContainer_.end(), std::greater<std::pair<double, int>>());
+           auto curr = pqContainer_.back();
+           double d = curr.first;
+           int u = curr.second;
+           pqContainer_.pop_back();
+           if (pathVisited_[u]) continue;
+           pathVisited_[u] = true;
+           if (u == endIdx) break;
+
+           if (u >= adjList_.size()) continue;
+
+           for (const auto& edge : adjList_[u]) {
+               int v = edge.getToIndex();
+               if (v < 0 || v >= static_cast<int>(nodes_.size())) continue;
+
+               double weight = edge.getLength();
+               if (pathDist_[u] + weight < pathDist_[v]) {
+                   pathDist_[v] = pathDist_[u] + weight;
+                   pathPrev_[v] = u;
+                   pqContainer_.emplace_back(pathDist_[v], v);
+                   std::push_heap(pqContainer_.begin(), pqContainer_.end(), std::greater<std::pair<double, int>>());
+               }
+           }
+       }
+
+       std::vector<int> path;
+       for (int at = endIdx; at != -1; at = pathPrev_[at]) {
+           path.push_back(at);
+       }
+       std::reverse(path.begin(), path.end());
+       return (path.front() == startIdx) ? path : std::vector<int>();
+   }
+
+   std::vector<int> shortestTimePath(int startIdx, int endIdx) const {
+       if (startIdx < 0 || endIdx < 0 || startIdx >= nodes_.size() || endIdx >= nodes_.size()) {
+           return {};
+       }
+
+       const double INF = 1e18;
+       resetPathBuffers(INF);
+       pathDist_[startIdx] = 0.0;
+
+       pqContainer_.clear();
+       pqContainer_.emplace_back(0.0, startIdx);
+
+       while (!pqContainer_.empty()) {
+           std::pop_heap(pqContainer_.begin(), pqContainer_.end(), std::greater<std::pair<double, int>>());
+           auto curr = pqContainer_.back();
+           double d = curr.first;
+           int u = curr.second;
+           pqContainer_.pop_back();
+           if (pathVisited_[u]) continue;
+           pathVisited_[u] = true;
+           if (u == endIdx) break;
+
+           if (u >= adjList_.size()) continue;
+
+           for (const auto& edge : adjList_[u]) {
+               int v = edge.getToIndex();
+               if (v < 0 || v >= static_cast<int>(nodes_.size())) continue;
+               if (!nodes_[v]) continue;
+
+               double edgeTime = edge.getPassThroughTime();
+               double edgeCongestionPenalty = edge.getCongestionLevel() * 5.0;
+
+               double nodeTime = nodes_[v] ? nodes_[v]->getPassThroughTime() : 1.0;
+               double nodeCongestionPenalty = nodes_[v] ? nodes_[v]->getCongestionFactor() * 3.0 : 0.0;
+
+               double weight = edgeTime + edgeCongestionPenalty + nodeTime + nodeCongestionPenalty;
+
+               if (pathDist_[u] + weight < pathDist_[v]) {
+                   pathDist_[v] = pathDist_[u] + weight;
+                   pathPrev_[v] = u;
+                   pqContainer_.emplace_back(pathDist_[v], v);
+                   std::push_heap(pqContainer_.begin(), pqContainer_.end(), std::greater<std::pair<double, int>>());
+               }
+           }
+       }
+
+       std::vector<int> path;
+       for (int at = endIdx; at != -1; at = pathPrev_[at]) {
+           path.push_back(at);
+       }
+       std::reverse(path.begin(), path.end());
+       return (path.front() == startIdx) ? path : std::vector<int>();
+   }
+
+   std::vector<int> multiObjectivePath(int startIdx, int endIdx) const {
+       if (startIdx < 0 || endIdx < 0 || startIdx >= nodes_.size() || endIdx >= nodes_.size()) {
+           return {};
+       }
+
+       const double INF = 1e18;
+       resetPathBuffers(INF);
+       pathDist_[startIdx] = 0.0;
+
+       if (congestionCacheFrame_ != currentFrame_) {
+           rebuildCongestionCache();
+       }
+
+       pqContainer_.clear();
+       pqContainer_.emplace_back(0.0, startIdx);
+
+       while (!pqContainer_.empty()) {
+           std::pop_heap(pqContainer_.begin(), pqContainer_.end(), std::greater<std::pair<double, int>>());
+           auto curr = pqContainer_.back();
+           double d = curr.first;
+           int u = curr.second;
+           pqContainer_.pop_back();
+           if (pathVisited_[u]) continue;
+           pathVisited_[u] = true;
+           if (u == endIdx) break;
+
+           if (u >= adjList_.size()) continue;
+
+           for (const auto& edge : adjList_[u]) {
+               int v = edge.getToIndex();
+               if (v < 0 || v >= static_cast<int>(nodes_.size())) continue;
+               if (v >= nodes_.size() || !nodes_[v]) continue;
+
+               double distanceWeight = edge.getLength();
+
+               double timeWeight = edge.getPassThroughTime() +
+                   (nodes_[v] ? nodes_[v]->getPassThroughTime() : 1.0);
+
+               double currentCongestionWeight = congestionCache_[v];
+
+               double futureCongestionEstimate = estimateFutureCongestion(v, endIdx);
+
+               double congestionWeight = 0.7 * currentCongestionWeight + 0.3 * futureCongestionEstimate;
+
+               double transitionPenalty = 0.0;
+               if (nodes_[u] && nodes_[v]) {
+                   std::string fromCode = nodes_[u]->getTypeCode();
+                   std::string toCode = nodes_[v]->getTypeCode();
+                   if ((fromCode == "SECURITY" && toCode == "HALL") ||
+                       (fromCode == "TICKET" && toCode == "HALL") ||
+                       (fromCode == "GATE" && toCode == "HALL") ||
+                       (fromCode == "GATE" && toCode == "SECURITY")) {
+                       transitionPenalty = 50.0;
+                   }
+               }
+
+               double weight = 0.3 * distanceWeight + 0.4 * timeWeight + 0.3 * congestionWeight + transitionPenalty;
+
+               if (pathDist_[u] + weight < pathDist_[v]) {
+                   pathDist_[v] = pathDist_[u] + weight;
+                   pathPrev_[v] = u;
+                   pqContainer_.emplace_back(pathDist_[v], v);
+                   std::push_heap(pqContainer_.begin(), pqContainer_.end(), std::greater<std::pair<double, int>>());
+               }
+           }
+       }
+
+       std::vector<int> path;
+       for (int at = endIdx; at != -1; at = pathPrev_[at]) {
+           path.push_back(at);
+       }
+       std::reverse(path.begin(), path.end());
+       return (path.front() == startIdx) ? path : std::vector<int>();
+   }
+
+   double estimateFutureCongestion(int startIdx, int endIdx, int lookAheadSteps = 3) const {
+       if (startIdx < 0 || endIdx < 0 || startIdx >= nodes_.size()) {
+           return 0.0;
+       }
+
+       ensurePathBuffers();
+       size_t n = nodes_.size();
+
+       double totalCongestion = 0.0;
+       int steps = 0;
+
+       std::fill(estVisited_.begin(), estVisited_.end(), false);
+       estVisited_[startIdx] = true;
+
+       while (!estQueue_.empty()) estQueue_.pop();
+       estQueue_.push(startIdx);
+
+       std::fill(estLevel_.begin(), estLevel_.end(), -1);
+       estLevel_[startIdx] = 0;
+
+       while (!estQueue_.empty() && steps < lookAheadSteps) {
+           int u = estQueue_.front(); estQueue_.pop();
+
+           if (estLevel_[u] > lookAheadSteps) break;
+
+           if (u != startIdx) {
+               if (u < n && nodes_[u]) {
+                   totalCongestion += congestionCache_[u];
+                   steps++;
+               }
+           }
+
+           if (u >= adjList_.size()) continue;
+
+           for (const auto& edge : adjList_[u]) {
+               int v = edge.getToIndex();
+               if (v >= 0 && v < n && !estVisited_[v] && estLevel_[v] == -1) {
+                   estVisited_[v] = true;
+                   estLevel_[v] = estLevel_[u] + 1;
+                   estQueue_.push(v);
+               }
+           }
+       }
+
+       return steps > 0 ? totalCongestion / steps : 0.0;
+   }
+
+public:
+   // 在addNode和removeNode方法中维护图的一致性
+   int addNode(std::unique_ptr<AbstractNode> node) {
+       if (!node) return -1;
+       std::string id = node->getId();
+       if (idToIndex_.count(id)) {
+           std::cout << "节点重复: ID " << id << " 已存在" << std::endl;
+           return -1;
+       }
+       int idx = static_cast<int>(nodes_.size());
+       idToIndex_[id] = idx;
+       indexToId_.push_back(id);
+       nodes_.push_back(std::move(node));
+       adjList_.emplace_back();
+
+       pathDist_.resize(nodes_.size());
+       pathPrev_.resize(nodes_.size());
+       pathVisited_.resize(nodes_.size());
+       estVisited_.resize(nodes_.size());
+       estLevel_.resize(nodes_.size());
+       congestionCache_.resize(nodes_.size(), 0.0);
+
+       return idx;
+   }
+
+   bool removeNode(const std::string& id) {
+       int idx = getIndex(id);
+       if (idx < 0 || idx >= nodes_.size()) return false;
+
+       // 从其他节点的邻接表中移除指向此节点的边
+       for (auto& edges : adjList_) {
+           edges.erase(
+               std::remove_if(edges.begin(), edges.end(),
+                   [idx](const Edge& e) {
+                       return e.getToIndex() == idx;
+                   }),
+               edges.end()
+           );
+       }
+
+       // 清空此节点的邻接表
+       adjList_[idx].clear();
+
+       int lastIdx = static_cast<int>(nodes_.size()) - 1;
+       if (idx != lastIdx) {
+           std::string movedId = indexToId_[lastIdx];
+           idToIndex_[movedId] = idx;
+           indexToId_[idx] = movedId;
+
+           nodes_[idx] = std::move(nodes_[lastIdx]);
+           adjList_[idx] = std::move(adjList_[lastIdx]);
+
+           for (auto& edges : adjList_) {
+               for (auto& edge : edges) {
+                   if (edge.getToIndex() == lastIdx) {
+                       edge.setToIndex(idx);
+                   }
+               }
+           }
+
+           std::cout << "警告: 删除节点 " << id << " (索引" << idx << "), 原末尾节点 " << movedId << " 已移动到索引 " << idx
+               << ", 请确保所有乘客引用的 node ID 已更新为字符串ID而非int索引" << std::endl;
+       }
+
+       nodes_.pop_back();
+       adjList_.pop_back();
+       idToIndex_.erase(id);
+       indexToId_.pop_back();
+
+       return true;
+   }
+
+   AbstractNode* getNode(const std::string& id) const {
+       int idx = getIndex(id);
+       return (idx >= 0) ? nodes_[idx].get() : nullptr;
+   }
+
+   AbstractNode* getNode(int index) const {
+       return (index >= 0 && index < nodes_.size()) ? nodes_[index].get() : nullptr;
+   }
+
+   const std::vector<std::unique_ptr<AbstractNode>>& getAllNodes() const {
+       return nodes_;
+   }
+
+   bool addEdge(const std::string& fromId, const std::string& toId, const Edge& edge) {
+       int fromIdx = getIndex(fromId);
+       int toIdx = getIndex(toId);
+       if (fromIdx < 0 || toIdx < 0) return false;
+
+       Edge newEdge = edge;
+       newEdge.setToIndex(toIdx);
+       adjList_[fromIdx].push_back(newEdge);
+       return true;
+   }
+
+   bool removeEdge(const std::string& fromId, const std::string& toId) {
+       int fromIdx = getIndex(fromId);
+       int toIdx = getIndex(toId);
+       if (fromIdx < 0 || toIdx < 0) return false;
+
+       auto& edges = adjList_[fromIdx];
+       edges.erase(
+           std::remove_if(edges.begin(), edges.end(),
+               [toIdx](const Edge& e) { return e.getToIndex() == toIdx; }),
+           edges.end()
+       );
+       return true;
+   }
+
+   const Edge* getEdge(const std::string& fromId, const std::string& toId) const {
+       return getEdge(getIndex(fromId), getIndex(toId));
+   }
+
+   const Edge* getEdge(int fromIdx, int toIdx) const {
+       if (fromIdx < 0 || fromIdx >= static_cast<int>(adjList_.size())) return nullptr;
+       for (const auto& e : adjList_[fromIdx]) {
+           if (e.getToIndex() == toIdx) return &e;
+       }
+       return nullptr;
+   }
+
+   Edge* getEdgeMutable(int fromIdx, int toIdx) const {
+       if (fromIdx < 0 || fromIdx >= static_cast<int>(adjList_.size())) return nullptr;
+       for (auto& e : adjList_[fromIdx]) {
+           if (e.getToIndex() == toIdx) return &e;
+       }
+       return nullptr;
+   }
+
+   Edge* getEdgeMutable(const std::string& fromId, const std::string& toId) const {
+       return getEdgeMutable(getIndex(fromId), getIndex(toId));
+   }
+
+   const std::vector<Edge>& getNeighbors(int index) const {
+       static const std::vector<Edge> empty;
+       return (index >= 0 && index < adjList_.size()) ? adjList_[index] : empty;
+   }
+
+   int getIndex(const std::string& id) const {
+       auto it = idToIndex_.find(id);
+       return (it != idToIndex_.end()) ? it->second : -1;
+   }
+
+   const std::string& getId(int index) const {
+       static const std::string empty;
+       return (index >= 0 && index < indexToId_.size()) ? indexToId_[index] : empty;
+   }
+
+   bool hasNode(const std::string& id) const {
+       return idToIndex_.count(id) > 0;
+   }
+
+   // 在findPath方法中添加索引有效性检查
+   std::vector<int> findPath(const std::string& startId, const std::string& endId, PathStrategy strategy) const {
+       int startIdx = getIndex(startId);
+       int endIdx = getIndex(endId);
+
+       // 检查索引有效性
+       if (startIdx < 0 || endIdx < 0) {
+           std::cout << "路径规划错误: 起点或终点不存在 - " << startId << " -> " << endId << std::endl;
+           return {};
+       }
+
+       if (startIdx >= nodes_.size() || endIdx >= nodes_.size()) {
+           std::cout << "路径规划错误: 索引超出范围" << std::endl;
+           return {};
+       }
+
+       switch (strategy) {
+       case PathStrategy::SHORTEST_DISTANCE:
+           return shortestDistancePath(startIdx, endIdx);
+       case PathStrategy::SHORTEST_TIME:
+           return shortestTimePath(startIdx, endIdx);
+       case PathStrategy::MULTI_OBJECTIVE_OPTIMIZATION:
+           return multiObjectivePath(startIdx, endIdx);
+       default:
+           return shortestTimePath(startIdx, endIdx);
+       }
+   }
+
+   bool canTraverseEdge(int fromIdx, int toIdx) const {
+       const Edge* e = getEdge(fromIdx, toIdx);
+       if (!e) return false;
+       AbstractNode* next = getNode(toIdx);
+       return e->canEnter() && (!next || next->canEnter());
+   }
+
+   // 在SubwayGraph类中优化loadFromCSV方法
+   bool loadFromCSV(const std::string& filePath) {
+       std::ifstream file(filePath);
+       if (!file.is_open()) {
+           std::cout << "无法打开文件: " << filePath << std::endl;
+           return false;
+       }
+
+       // 验证文件头
+       std::string header;
+       std::getline(file, header);
+       if (header.find("recordType") == std::string::npos ||
+           header.find("type") == std::string::npos ||
+           header.find("id") == std::string::npos) {
+           std::cout << "CSV文件格式错误: 缺少必要字段" << std::endl;
+           return false;
+       }
+
+       std::string line;
+       int lineNumber = 1;
+       int successCount = 0;
+       int errorCount = 0;
+       std::vector<std::string> errors;
+
+       // 预分配容器以提高性能
+       std::vector<std::map<std::string, std::string>> nodePropsList;
+       std::vector<std::string> nodeTypeCodes;
+       std::vector<std::string> edgeFromIds;
+       std::vector<std::string> edgeToIds;
+       std::vector<Edge> edgeList;
+
+       while (std::getline(file, line)) {
+           lineNumber++;
+           if (!line.empty() && line.back() == '\r') line.pop_back();
+           if (line.empty()) continue;
+
+           try {
+               // 解析CSV行
+               std::istringstream ss(line);
+               std::vector<std::string> values;
+               std::string value;
+
+               // 使用引号感知的CSV解析
+               bool inQuotes = false;
+               std::string field;
+               for (size_t i = 0; i < line.length(); ++i) {
+                   char c = line[i];
+                   if (c == '"') {
+                       inQuotes = !inQuotes;
+                   }
+                   else if (c == ',' && !inQuotes) {
+                       values.push_back(field);
+                       field.clear();
+                   }
+                   else {
+                       field += c;
+                   }
+               }
+               values.push_back(field);
+
+               if (values.size() < 2) {
+                   errors.push_back("第 " + std::to_string(lineNumber) + " 行: 字段数量不足");
+                   errorCount++;
+                   continue;
+               }
+
+               std::string recordType = values[0];
+
+               if (recordType == "NODE" && values.size() >= 7) {
+                   std::map<std::string, std::string> props;
+                   props["type"] = values[1];
+                   props["id"] = values[2];
+                   props["floor"] = values[3];
+                   props["x"] = values[4];
+                   props["y"] = values[5];
+                   props["capacity"] = values[6];
+                   props["baseVelocity"] = (values.size() > 7 && !values[7].empty()) ? values[7] : "1.0";
+                   props["sensitivity"] = (values.size() > 8 && !values[8].empty()) ? values[8] : "1.0";
+
+                   std::string typeCode = props["type"];
+                   size_t idx = 9;
+
+                   // 根据节点类型处理额外属性
+                   if (typeCode == "SECURITY" && values.size() > idx + 2) {
+                       props["scannerCount"] = values[idx++];
+                       props["checkTimePerPerson"] = values[idx++];
+                       props["hasBannedItem"] = values[idx++];
+                   }
+                   else if (typeCode == "TICKET" && values.size() > idx + 2) {
+                       props["windowCount"] = values[idx++];
+                       props["buyTimePerPerson"] = values[idx++];
+                       props["hasAutoMachine"] = values[idx++];
+                   }
+                   else if (typeCode == "GATE" && values.size() > idx + 1) {
+                       props["gateCount"] = values[idx++];
+                       props["isBidirectional"] = values[idx++];
+                   }
+                   else if (typeCode == "EXIT" && values.size() > idx + 3) {
+                       props["exitName"] = values[idx++];
+                       props["connectedStreet"] = values[idx++];
+                       props["isOneWay"] = values[idx++];
+                       props["totalExits"] = values[idx++];
+                   }
+                   else if (typeCode == "PLATFORM" && values.size() > idx + 4) {
+                       props["lineName"] = values[idx++];
+                       props["direction"] = values[idx++];
+                       props["waitCap"] = values[idx++];
+                       props["hasScreenDoor"] = values[idx++];
+                       props["nextTrainIn"] = values[idx++];
+                   }
+                   else if (typeCode == "STAIR" && values.size() > idx + 1) {
+                       props["stepCount"] = values[idx++];
+                       props["direction"] = values[idx++];
+                   }
+
+                   nodePropsList.push_back(props);
+                   nodeTypeCodes.push_back(typeCode);
+               }
+               else if (recordType == "EDGE" && values.size() >= 6) {
+                   Edge e;
+                   e.setLength(safeStod(values[3], 10.0));
+                   e.setWidth(safeStod(values[4], 2.0));
+
+                   if (values.size() > 6) e.setBaseVelocity(safeStod(values[6], 1.0));
+                   if (values.size() > 7) e.setIsEscalator(safeStoi(values[7], 0) == 1);
+
+                   edgeFromIds.push_back(values[1]);
+                   edgeToIds.push_back(values[2]);
+                   edgeList.push_back(e);
+               }
+               else {
+                   errors.push_back("第 " + std::to_string(lineNumber) + " 行: 记录类型或字段数量错误");
+                   errorCount++;
+                   continue;
+               }
+
+               successCount++;
+           }
+           catch (const std::exception& e) {
+               errorCount++;
+               errors.push_back("第 " + std::to_string(lineNumber) + " 行异常: " + e.what());
+           }
+
+           // 如果错误率过高，提前终止
+           if (errorCount > 0 && successCount > 0 && static_cast<double>(errorCount) / (successCount + errorCount) > 0.5) {
+               std::cout << "错误率过高，停止加载" << std::endl;
+               break;
+           }
+       }
+
+       // 批量添加节点
+       for (size_t i = 0; i < nodePropsList.size(); ++i) {
+           auto& props = nodePropsList[i];
+           auto& typeCode = nodeTypeCodes[i];
+           auto node = NodeFactory::createNode(typeCode, props);
+           if (node) {
+               addNode(std::move(node));
+           }
+           else {
+               errorCount++;
+               errors.push_back("节点创建失败: ID=" + props["id"]);
+           }
+       }
+
+       // 批量添加边
+       for (size_t i = 0; i < edgeFromIds.size(); ++i) {
+           auto& fromId = edgeFromIds[i];
+           auto& toId = edgeToIds[i];
+           auto& edge = edgeList[i];
+           if (!addEdge(fromId, toId, edge)) {
+               errorCount++;
+               errors.push_back("边添加失败: " + fromId + " -> " + toId);
+           }
+       }
+
+       // 输出统计信息
+       std::cout << "CSV加载完成 - 成功: " << successCount << ", 失败: " << errorCount << std::endl;
+       if (!errors.empty()) {
+           std::cout << "错误详情:" << std::endl;
+           for (const auto& error : errors) {
+               std::cout << "  " << error << std::endl;
+           }
+       }
+
+       return errorCount == 0 && successCount > 0;
+   }
+
+   // 在SubwayGraph类中优化saveToCSV方法
+   bool saveToCSV(const std::string& filePath) const {
+       std::ofstream file(filePath);
+       if (!file.is_open()) {
+           std::cout << "无法创建文件: " << filePath << std::endl;
+           return false;
+       }
+
+       // 写入CSV头部
+       file << "recordType,type,id,floor,x,y,capacity,baseVelocity,sensitivity,"
+           << "length,width,scannerCount,checkTimePerPerson,hasBannedItem,"
+           << "windowCount,buyTimePerPerson,hasAutoMachine,gateCount,isBidirectional,"
+           << "exitName,connectedStreet,isOneWay,totalExits,lineName,direction,"
+           << "waitCap,hasScreenDoor,nextTrainIn,stepCount,isEscalator\n";
+
+       // 批量写入节点
+       for (const auto& node : nodes_) {
+           std::map<std::string, std::string> props = node->toProperties();
+
+           // 写入节点基本信息
+           file << "NODE," << props["type"] << "," << props["id"] << ","
+               << props["floor"] << "," << props["x"] << "," << props["y"] << ","
+               << props["capacity"] << "," << props["baseVelocity"] << "," << props["sensitivity"];
+
+           // 根据节点类型写入特有属性
+           std::string nodeType = props["type"];
+           if (nodeType == "SECURITY") {
+               file << ",,,,,"
+                   << props["scannerCount"] << "," << props["checkTimePerPerson"] << "," << props["hasBannedItem"]
+                   << ",,,,,,,,,,,,,,,,\n";
+           }
+           else if (nodeType == "TICKET") {
+               file << ",,,,,,,,"
+                   << props["windowCount"] << "," << props["buyTimePerPerson"] << "," << props["hasAutoMachine"]
+                   << ",,,,,,,,,,,,,\n";
+           }
+           else if (nodeType == "GATE") {
+               file << ",,,,,,,,,,"
+                   << props["gateCount"] << "," << props["isBidirectional"]
+                   << ",,,,,,,,,,,\n";
+           }
+           else if (nodeType == "EXIT") {
+               file << ",,,,,,,,,,,,"
+                   << props["exitName"] << "," << props["connectedStreet"] << "," << props["isOneWay"] << "," << props["totalExits"]
+                   << ",,,,,,,\n";
+           }
+           else if (nodeType == "PLATFORM") {
+               file << ",,,,,,,,,,,,,,,,"
+                   << props["lineName"] << "," << props["direction"] << "," << props["waitCap"] << "," << props["hasScreenDoor"] << "," << props["nextTrainIn"]
+                   << ",,\n";
+           }
+           else if (nodeType == "STAIR") {
+               file << ",,,,,,,,,,,,,,,,"
+                   << props["stepCount"] << "," << props["direction"]
+                   << ",,\n";
+           }
+           else {
+               file << ",,,,,,,,,,,,,,,,,,,,,,\n";
+           }
+       }
+
+       // 批量写入边
+       for (size_t u = 0; u < adjList_.size(); ++u) {
+           for (const auto& edge : adjList_[u]) {
+               int v = edge.getToIndex();
+               if (v < 0 || v >= static_cast<int>(nodes_.size())) continue;
+
+               file << "EDGE," << indexToId_[u] << "," << indexToId_[v] << ","
+                   << edge.getLength() << "," << edge.getWidth() << ","
+                   << edge.getBaseVelocity() << ","
+                   << (edge.getIsEscalator() ? "1" : "0") << "\n";
+           }
+       }
+
+       return true;
+   }
+
+   void visualize() const {
+       std::cout << "\n=== 地铁站拓扑结构 ===" << std::endl;
+       for (size_t i = 0; i < nodes_.size(); ++i) {
+           std::cout << "节点 " << i << " (" << nodes_[i]->getTypeName() << "): "
+               << nodes_[i]->getId() << " - 楼层 " << nodes_[i]->getFloor()
+               << ", 位置(" << nodes_[i]->getPos().x << "," << nodes_[i]->getPos().y << ")"
+               << ", 负载: " << nodes_[i]->getCurrentLoad() << "/" << nodes_[i]->getCapacity()
+               << ", 拥堵: " << nodes_[i]->getCongestionFactor()
+               << ", 队列: " << nodes_[i]->getQueueLength() << std::endl;
+
+           for (const auto& edge : adjList_[i]) {
+               int to = edge.getToIndex();
+               if (to >= 0 && to < nodes_.size()) {
+                   std::cout << "  -> 连接到节点 " << to << " (" << nodes_[to]->getTypeName()
+                       << ") 长度: " << edge.getLength() << ", 扶梯: " << (edge.getIsEscalator() ? "是" : "否") << std::endl;
+               }
+           }
+       }
+       std::cout << "======================" << std::endl;
+   }
+
+   void update(double deltaTime) {
+       ++currentFrame_;
+   }
+};
+
+enum class PassengerState {
+   SPAWNED,
+   ENTERING,
+   TICKETING,
+   SECURITY_CHECK,
+   MOVING_TO_PLATFORM,
+   FROM_TRAIN,
+   ON_PLATFORM,
+   WAITING_TRAIN,
+   BOARDING,
+   MOVING_TO_EXIT,
+   EXITING,
+   LEFT,
+   IN_QUEUE,
+   PATH_FOLLOWING,
+   IN_TRANSIT,
+   WAITING_EDGE,
+   REPATHING,
+   COLLIDING
+};
+
+class PassengerAttributes {
+public:
+   float speed;            // Speed coefficient (0.8 - 1.2)
+   float patience;         // Patience (0.0 - 1.0)
+   float familiarity;      // Familiarity (0.0 - 1.0)
+   bool has_luggage;       // Has luggage
+   std::string purpose;    // Purpose ("commute" or "leisure")
+
+   PassengerAttributes() : speed(1.0f), patience(1.0f), familiarity(1.0f),
+       has_luggage(false), purpose("commute") {}
+};
+
+class Passenger {
+public:
+   PassengerState state;                   // Current passenger state
+   PassengerAttributes attributes;         // Personalized attributes
+   PathStrategy pathStrategy;              // 路径规划策略
+
+   int id;                                 // Unique identifier
+   int current_node_id;                    // Current node ID
+   int target_node_id;                     // Target node ID
+   std::vector<int> path;                  // Planned path (sequence of node IDs)
+   int current_path_index;                 // Current index in the path
+   bool isFromTrain;                       // 是否从列车下车
+   bool headingToPlatform;                 // 是否前往站台乘车
+
+   double action_timer;                    // Timer for current action
+   double spawn_time;                      // Spawn time (simulation start)
+   double exit_time;                       // Exit time (simulation end)
+
+   // Queue related attributes
+   int queue_start_time;                   // When joined queue
+   int queue_position;                     // Position in queue
+
+   // 碰撞策略新增：网格位置追踪
+   int current_grid_x;
+   int current_grid_y;
+
+   // IN_TRANSIT状态属性
+   int current_edge_from;
+   int current_edge_to;
+   double transit_timer;
+
+   // [新增] 重新规划阈值和上次规划时间
+   double lastReplanTime;
+   double replanInterval;
+   double lastCongestionReplanTime;
+   static constexpr double congestionReplanCooldown = 30.0;
+
+   // 碰撞策略新增：等待/避让相关
+   int collision_timer;                    // 等待计时器，防止无限等待
+   std::vector<std::pair<int, int>> collision_path_buffer; // 缓存的局部路径
+   const SubwayGraph* graphRef;             // 图引用，用于获取节点信息
+
+   Passenger(int curr_id, int curr_node, int target_node, PassengerAttributes attrs,
+       double time, PathStrategy strategy, bool from_train = false,
+       const SubwayGraph* graph = nullptr)
+       : id(curr_id), current_node_id(curr_node), target_node_id(target_node),
+       attributes(attrs), pathStrategy(strategy), spawn_time(time),
+       action_timer(0.0), state(from_train ? PassengerState::FROM_TRAIN : PassengerState::SPAWNED),
+       exit_time(0.0), queue_start_time(0), queue_position(-1),
+       current_path_index(0), current_grid_x(-1), current_grid_y(-1),
+       current_edge_from(-1), current_edge_to(-1), transit_timer(0.0),
+       collision_timer(0), isFromTrain(from_train), headingToPlatform(false), lastReplanTime(time), replanInterval(90.0),
+       lastCongestionReplanTime(time),
+       graphRef(graph) {}
+
+   mutable std::vector<std::vector<bool>> bfs_visited;
+   mutable std::vector<std::vector<std::pair<int, int>>> bfs_parent;
+   mutable int bfs_buffer_width = 0;
+   mutable int bfs_buffer_height = 0;
+
+   void ensureBfsBuffers(int gw, int gh) const {
+       if (bfs_buffer_width != gw || bfs_buffer_height != gh) {
+           bfs_visited.assign(gw, std::vector<bool>(gh, false));
+           bfs_parent.assign(gw, std::vector<std::pair<int, int>>(gh, { -1, -1 }));
+           bfs_buffer_width = gw;
+           bfs_buffer_height = gh;
+       }
+       else {
+           for (auto& row : bfs_visited) std::fill(row.begin(), row.end(), false);
+           for (auto& row : bfs_parent) std::fill(row.begin(), row.end(), std::pair<int, int>(-1, -1));
+       }
+   }
+   // Method to initialize path after creation
+   void setPath(const std::vector<int>& calculatedPath) {
+       path = calculatedPath;
+       if (!path.empty()) {
+           current_path_index = 0;
+           target_node_id = (path.size() > 1) ? path[1] : path[0];
+       }
+   }
+
+   // 碰撞策略新增：辅助函数 - 计算到目标网格的简单方向
+   std::pair<int, int> getDirectionToTarget(const AbstractNode* node, int target_x, int target_y) const {
+       int dx = target_x - current_grid_x;
+       int dy = target_y - current_grid_y;
+       int move_x = (dx > 0) ? 1 : ((dx < 0) ? -1 : 0);
+       int move_y = (dy > 0) ? 1 : ((dy < 0) ? -1 : 0);
+       return { move_x, move_y };
+   }
+
+   // 碰撞策略新增：局部寻路（BFS找最近空位）
+   std::vector<std::pair<int, int>> findLocalPath(const AbstractNode* node, int target_x, int target_y) const {
+       if (current_grid_x < 0 || current_grid_y < 0) return {};
+
+       int gw = node->getGridWidth();
+       int gh = node->getGridHeight();
+       if (current_grid_x >= gw || current_grid_y >= gh) return {};
+
+       ensureBfsBuffers(gw, gh);
+
+       std::queue<std::pair<int, int>> q;
+       q.push({ current_grid_x, current_grid_y });
+       bfs_visited[current_grid_x][current_grid_y] = true;
+
+       const int dx[] = { 0, 0, 1, -1, 1, -1, 1, -1 };
+       const int dy[] = { 1, -1, 0, 0, 1, 1, -1, -1 };
+
+       while (!q.empty()) {
+           auto front = q.front();
+           int x = front.first;
+           int y = front.second;
+           q.pop();
+
+           if (x == target_x && y == target_y && !node->isCellOccupied(x, y)) {
+               std::vector<std::pair<int, int>> path;
+               std::pair<int, int> current = { x, y };
+               while (current.first != -1) {
+                   path.push_back(current);
+                   current = bfs_parent[current.first][current.second];
+               }
+               std::reverse(path.begin(), path.end());
+               return path;
+           }
+
+           for (int i = 0; i < 8; ++i) {
+               int nx = x + dx[i];
+               int ny = y + dy[i];
+
+               if (node->isCellValid(nx, ny) && !bfs_visited[nx][ny] && !node->isCellObstacle(nx, ny)) {
+                   bfs_visited[nx][ny] = true;
+                   bfs_parent[nx][ny] = { x, y };
+                   q.push({ nx, ny });
+               }
+           }
+       }
+
+       return {};
+   }
+   // [新增] 查找最近的出口
+   std::string findNearestExit(const SubwayGraph& graph) const {
+       for (const auto& node : graph.getAllNodes()) {
+           if (node->getTypeCode() == "EXIT") {
+               return node->getId();
+           }
+       }
+       return "";
+   }
+
+   bool update(double dt, int current_node_load, int current_node_capacity,
+       double node_service_time, AbstractNode* current_node,
+       const SubwayGraph& graph, int& replansThisFrame, int maxReplansPerFrame = 30) {
+
+       if (state == PassengerState::SPAWNED) {
+           action_timer += dt;
+           AbstractNode* start_node = current_node;
+           if (start_node) {
+               bool assigned = false;
+               if (start_node->occupyCell(1, 1, id)) {
+                   current_grid_x = 1; current_grid_y = 1; assigned = true;
+               }
+               if (!assigned) {
+                   for (int x = 1; x < start_node->getGridWidth() - 1 && !assigned; ++x) {
+                       for (int y = 1; y < start_node->getGridHeight() - 1; ++y) {
+                           if (start_node->occupyCell(x, y, id)) {
+                               current_grid_x = x; current_grid_y = y; assigned = true; break;
+                           }
+                       }
+                   }
+               }
+               if (assigned) {
+                   state = PassengerState::PATH_FOLLOWING;
+               }
+               else if (action_timer > 10.0) {
+                   state = PassengerState::LEFT;
+                   exit_time = spawn_time + action_timer;
+                   return false;
+               }
+           }
+           return true;
+       }
+
+       if (state == PassengerState::FROM_TRAIN) {
+           // 直接转为在站台状态
+           state = PassengerState::ON_PLATFORM;
+       }
+
+       if (state == PassengerState::ON_PLATFORM) {
+           if (current_node && current_node->getTypeCode() == "PLATFORM") {
+               std::string exitId = findNearestExit(graph);
+               if (!exitId.empty()) {
+                   std::vector<int> newPath = graph.findPath(
+                       graph.getId(current_node_id), exitId, pathStrategy);
+                   if (!newPath.empty()) {
+                       setPath(newPath);
+                       state = PassengerState::PATH_FOLLOWING;
+                   }
+               }
+           }
+       }
+
+       // [修改] 原有逻辑继续执行
+       if (state == PassengerState::COLLIDING) {
+           if (collision_timer > 2.0) {
+               collision_timer = 0;
+               state = PassengerState::PATH_FOLLOWING;
+           }
+           return true;
+       }
+
+       if (state == PassengerState::LEFT) return false;
+
+       action_timer += dt;
+       collision_timer += dt;
+       bool is_currently_congested = (current_node_capacity > 0) &&
+           (current_node_load * 1.0 / current_node_capacity > 0.8);
+
+       // [新增] 检查当前边的拥堵情况
+       bool is_edge_congested = false;
+       if (current_path_index > 0) {
+           std::string prevNodeId = graph.getId(path[current_path_index - 1]);
+           std::string currNodeId = graph.getId(current_node_id);
+           const Edge* edge = graph.getEdge(prevNodeId, currNodeId);
+           if (edge && edge->getCongestionLevel() > 0.8) {
+               is_edge_congested = true;
+           }
+       }
+
+       // [已重构] 原逻辑已移至下方PATH_FOLLOWING宏观转移中，此块已禁用
+       if (false && current_node_id == target_node_id) {
+           // 到达站台且要乘车，进入候车状态
+           if (headingToPlatform && current_node && current_node->getTypeCode() == "PLATFORM") {
+               state = PassengerState::WAITING_TRAIN;
+               return true;
+           }
+
+           if (current_node && (current_node->getTypeCode() == "SECURITY" ||
+               current_node->getTypeCode() == "TICKET" ||
+               current_node->getTypeCode() == "GATE" ||
+               current_node->getTypeCode() == "EXIT")) {
+
+               if (!current_node->joinQueue(id)) {
+                   if (attributes.patience < 0.3) {
+                       if (current_grid_x >= 0 && current_grid_y >= 0) {
+                           current_node->releaseCell(current_grid_x, current_grid_y);
+                       }
+                       advancePath();
+                       if (current_path_index >= path.size()) {
+                           state = PassengerState::LEFT;
+                           exit_time = spawn_time + action_timer;
+                       }
+                       else {
+                           target_node_id = path[current_path_index];
+                       }
+                       return true;
+                   }
+                   state = PassengerState::IN_QUEUE;
+                   action_timer = 0.0;
+                   return true;
+               }
+               else {
+                   state = PassengerState::IN_QUEUE;
+                   action_timer = 0.0;
+                   return true;
+               }
+           }
+           else {
+               // 不是服务节点，尝试进入边前往下一节点
+               if (!path.empty() && current_path_index < path.size() - 1) {
+                   int next_node_id = path[current_path_index + 1];
+                   const Edge* nextEdge = graph.getEdge(current_node_id, next_node_id);
+                   if (!nextEdge) {
+                       state = PassengerState::REPATHING;
+                       return true;
+                   }
+
+                   if (!nextEdge->tryEnterEdge()) {
+                       state = PassengerState::WAITING_EDGE;
+                       return true;
+                   }
+
+                   AbstractNode* nextNode = getNode(next_node_id);
+                   if (nextNode && !nextNode->canEnter()) {
+                       state = PassengerState::WAITING_EDGE;
+                       return true;
+                   }
+
+                   // 进入边：释放当前节点网格
+                   if (current_node && current_grid_x >= 0 && current_grid_y >= 0) {
+                       current_node->releaseCell(current_grid_x, current_grid_y);
+                   }
+
+                   // 占用边资源
+                   Edge* mutableEdge = graph.getEdgeMutable(current_node_id, next_node_id);
+                   if (mutableEdge) mutableEdge->addOccupant();
+                   current_edge_from = current_node_id;
+                   current_edge_to = next_node_id;
+                   transit_timer = 0.0;
+                   current_grid_x = -1;
+                   current_grid_y = -1;
+                   state = PassengerState::IN_TRANSIT;
+                   return true;
+               }
+               else {
+                   if (current_grid_x >= 0 && current_grid_y >= 0) {
+                       current_node->releaseCell(current_grid_x, current_grid_y);
+                       current_grid_x = -1;
+                       current_grid_y = -1;
+                   }
+                   state = PassengerState::LEFT;
+                   exit_time = spawn_time + action_timer;
+                   return true;
+               }
+           }
+       }
+
+       // 处理WAITING_TRAIN状态：在站台候车，列车到站时上车离开
+       if (state == PassengerState::WAITING_TRAIN) {
+           if (current_node && current_node->getTypeCode() == "PLATFORM") {
+               PlatformNode* platform = dynamic_cast<PlatformNode*>(current_node);
+               if (platform && platform->isTrainArrivingNow()) {
+                   if (current_grid_x >= 0 && current_grid_y >= 0) {
+                       current_node->releaseCell(current_grid_x, current_grid_y);
+                   }
+                   state = PassengerState::LEFT;
+                   exit_time = spawn_time + action_timer;
+               }
+           }
+           return true;
+       }
+
+       // 处理IN_TRANSIT状态：在边上移动
+       if (state == PassengerState::IN_TRANSIT) {
+           const Edge* edge = graph.getEdge(current_edge_from, current_edge_to);
+           transit_timer += dt;
+
+           if (edge && transit_timer >= edge->getPassThroughTime()) {
+               AbstractNode* nextNode = getNode(current_edge_to);
+               if (nextNode && nextNode->canEnter()) {
+                   // 释放边资源
+                   Edge* mutableEdge = graph.getEdgeMutable(current_edge_from, current_edge_to);
+                   if (mutableEdge) mutableEdge->removeOccupant();
+
+                   // 到达目标节点
+                   current_node_id = current_edge_to;
+                   current_path_index++;
+                   target_node_id = (current_path_index + 1 < static_cast<int>(path.size()))
+                       ? path[current_path_index + 1]
+                       : path[current_path_index];
+
+                   // 在目标节点分配网格
+                   bool assigned = false;
+                   if (nextNode->occupyCell(1, 1, id)) {
+                       current_grid_x = 1;
+                       current_grid_y = 1;
+                       assigned = true;
+                   }
+                   if (!assigned) {
+                       for (int x = 1; x < nextNode->getGridWidth() - 1 && !assigned; ++x) {
+                           for (int y = 1; y < nextNode->getGridHeight() - 1; ++y) {
+                               if (nextNode->occupyCell(x, y, id)) {
+                                   current_grid_x = x;
+                                   current_grid_y = y;
+                                   assigned = true;
+                                   break;
+                               }
+                           }
+                       }
+                   }
+
+                   current_edge_from = -1;
+                   current_edge_to = -1;
+                   transit_timer = 0.0;
+                   state = PassengerState::PATH_FOLLOWING;
+               }
+               else {
+                   state = PassengerState::WAITING_EDGE;
+               }
+           }
+           return true;
+       }
+
+       // 处理WAITING_EDGE状态：等待边/目标节点可用
+       if (state == PassengerState::WAITING_EDGE) {
+           if (!path.empty() && current_path_index < static_cast<int>(path.size()) - 1) {
+               int next_node_id = path[current_path_index + 1];
+               const Edge* nextEdge = graph.getEdge(current_node_id, next_node_id);
+               AbstractNode* nextNode = getNode(next_node_id);
+               if (nextEdge && nextEdge->tryEnterEdge() && (!nextNode || nextNode->canEnter())) {
+                   state = PassengerState::PATH_FOLLOWING;
+               }
+           }
+           else {
+               state = PassengerState::PATH_FOLLOWING;
+           }
+           return true;
+       }
+
+       if (state == PassengerState::IN_QUEUE) {
+           if (current_node) {
+               if (current_node->isBeingServed(id)) {
+                   double service_time = node_service_time;
+                   if (attributes.has_luggage && current_node->getTypeCode() == "SECURITY") {
+                       service_time *= 1.5;
+                   }
+                   service_time /= std::max<float>(0.1f, attributes.speed);
+
+                   if (is_currently_congested) {
+                       service_time *= 1.5;
+                   }
+
+                   if (action_timer >= service_time) {
+                       current_node->completeService(id);
+                       // 服务完成，尝试进入边前往下一节点
+                       if (!path.empty() && current_path_index < path.size() - 1) {
+                           int next_node_id = path[current_path_index + 1];
+                           const Edge* nextEdge = graph.getEdge(current_node_id, next_node_id);
+                           if (nextEdge && nextEdge->tryEnterEdge()) {
+                               AbstractNode* nextNode = getNode(next_node_id);
+                               if (nextNode && nextNode->canEnter()) {
+                                   // 释放当前节点网格
+                                   if (current_grid_x >= 0 && current_grid_y >= 0) {
+                                       current_node->releaseCell(current_grid_x, current_grid_y);
+                                   }
+                                   // 进入边
+                                   Edge* mutableEdge = graph.getEdgeMutable(current_node_id, next_node_id);
+                                   if (mutableEdge) mutableEdge->addOccupant();
+                                   current_edge_from = current_node_id;
+                                   current_edge_to = next_node_id;
+                                   transit_timer = 0.0;
+                                   current_grid_x = -1;
+                                   current_grid_y = -1;
+                                   state = PassengerState::IN_TRANSIT;
+                               }
+                               else {
+                                   state = PassengerState::WAITING_EDGE;
+                               }
+                           }
+                           else {
+                               state = PassengerState::WAITING_EDGE;
+                           }
+                       }
+                       else {
+                           if (current_grid_x >= 0 && current_grid_y >= 0) {
+                               current_node->releaseCell(current_grid_x, current_grid_y);
+                           }
+                           state = PassengerState::LEFT;
+                           exit_time = spawn_time + action_timer;
+                       }
+                   }
+               }
+           }
+       }
+
+       // 检查是否需要重新规划路径
+       if (needsReplanning(current_node, graph) && replansThisFrame < maxReplansPerFrame) {
+           state = PassengerState::REPATHING;
+           std::string currentId = graph.getId(current_node_id);
+           std::string targetId = graph.getId(target_node_id);
+           replanPath(currentId, targetId, graph);
+           state = PassengerState::PATH_FOLLOWING;
+           replansThisFrame++;
+       }
+
+       // ==========================================
+       // 【核心重构】宏观拓扑转移逻辑（优先级最高）
+       // 只要处于PATH_FOLLOWING状态且路径有效，就尝试转移
+       // ==========================================
+       if (state == PassengerState::PATH_FOLLOWING && !path.empty()) {
+
+           // 1. 服务节点必须先排队（注意：EXIT不需要排队，走到出口直接离场）
+           if (current_node && (current_node->getTypeCode() == "SECURITY" ||
+               current_node->getTypeCode() == "TICKET" ||
+               current_node->getTypeCode() == "GATE")) {
+               if (!current_node->joinQueue(id)) {
+                   if (attributes.patience < 0.3) {
+                       if (current_grid_x >= 0 && current_grid_y >= 0)
+                           current_node->releaseCell(current_grid_x, current_grid_y);
+                       advancePath();
+                       if (current_path_index >= static_cast<int>(path.size())) {
+                           state = PassengerState::LEFT; exit_time = spawn_time + action_timer; return false;
+                       } else { target_node_id = path[current_path_index]; }
+                       return true;
+                   }
+                   state = PassengerState::IN_QUEUE; action_timer = 0.0;
+               } else {
+                   state = PassengerState::IN_QUEUE; action_timer = 0.0;
+               }
+               return true;
+           }
+
+           // 2. 出口节点直接离场，绝不排队
+           if (current_node && current_node->getTypeCode() == "EXIT") {
+               if (current_grid_x >= 0 && current_grid_y >= 0) {
+                   current_node->releaseCell(current_grid_x, current_grid_y);
+                   current_grid_x = -1; current_grid_y = -1;
+               }
+               state = PassengerState::LEFT;
+               exit_time = spawn_time + action_timer;
+               return false;
+           }
+
+           // 3. 站台候车
+           if (headingToPlatform && current_node && current_node->getTypeCode() == "PLATFORM") {
+               state = PassengerState::WAITING_TRAIN;
+               return true;
+           }
+
+           // 3. 【关键修复】随时尝试进入下一条边（打破死循环的唯一出路）
+           if (current_path_index < static_cast<int>(path.size()) - 1) {
+               int next_node_id = path[current_path_index + 1];
+               const Edge* nextEdge = graph.getEdge(current_node_id, next_node_id);
+               if (!nextEdge) { state = PassengerState::REPATHING; return true; }
+               AbstractNode* nextNode = getNode(next_node_id);
+               if (!nextEdge->tryEnterEdge() || (nextNode && !nextNode->canEnter())) {
+                   state = PassengerState::WAITING_EDGE;
+               } else {
+                   if (current_grid_x >= 0 && current_grid_y >= 0)
+                       current_node->releaseCell(current_grid_x, current_grid_y);
+                   Edge* mutableEdge = graph.getEdgeMutable(current_node_id, next_node_id);
+                   if (mutableEdge) mutableEdge->addOccupant();
+                   current_edge_from = current_node_id;
+                   current_edge_to = next_node_id;
+                   transit_timer = 0.0;
+                   current_grid_x = -1;
+                   current_grid_y = -1;
+                   state = PassengerState::IN_TRANSIT;
+                   return true;
+               }
+           } else {
+               // 路径终点，直接离场
+               if (current_grid_x >= 0 && current_grid_y >= 0) {
+                   current_node->releaseCell(current_grid_x, current_grid_y);
+                   current_grid_x = -1; current_grid_y = -1;
+               }
+               state = PassengerState::LEFT; exit_time = spawn_time + action_timer; return false;
+           }
+       }
+
+       // 碰撞策略核心：在节点内部移动（降级为等待进边时的防重叠行为）
+       if (state == PassengerState::PATH_FOLLOWING && current_node
+           && current_grid_x >= 0 && current_grid_y >= 0) {
+
+           double moveSpeed = current_node->getBaseVelocity() * attributes.speed;
+           moveSpeed *= (1.0 - current_node->getCongestionFactor() * 0.8);
+           double cellsToMove = moveSpeed * dt / current_node->getCellSize();
+           int maxSteps = std::max(1, static_cast<int>(std::floor(cellsToMove)));
+
+           for (int step = 0; step < maxSteps; ++step) {
+               int target_grid_x = current_node->getGridWidth() / 2;
+               int target_grid_y = current_node->getGridHeight() / 2;
+
+               auto curr = getDirectionToTarget(current_node, target_grid_x, target_grid_y);
+               int dir_x = curr.first;
+               int dir_y = curr.second;
+               int next_x = current_grid_x + dir_x;
+               int next_y = current_grid_y + dir_y;
+
+               bool collision_occurred = false;
+               if (current_node->isCellObstacle(next_x, next_y)) {
+                   collision_occurred = true;
+               }
+               else if (current_node->isCellOccupied(next_x, next_y)) {
+                   collision_occurred = true;
+               }
+
+               if (collision_occurred) {
+                   if (collision_timer < 0.5) {
+                       state = PassengerState::COLLIDING;
+                       break;
+                   }
+                   auto local_path = findLocalPath(current_node, target_grid_x, target_grid_y);
+                   if (!local_path.empty() && local_path.size() > 1) {
+                       auto new_node = local_path[1];
+                       int new_x = new_node.first;
+                       int new_y = new_node.second;
+                       if (current_node->moveCell(current_grid_x, current_grid_y, new_x, new_y, id)) {
+                           current_grid_x = new_x;
+                           current_grid_y = new_y;
+                           collision_timer = 0;
+                       }
+                       else {
+                           state = PassengerState::COLLIDING;
+                           break;
+                       }
+                   }
+                   else {
+                       state = PassengerState::COLLIDING;
+                       break;
+                   }
+               }
+               else {
+                   if (current_node->moveCell(current_grid_x, current_grid_y, next_x, next_y, id)) {
+                       current_grid_x = next_x;
+                       current_grid_y = next_y;
+                       collision_timer = 0;
+                   }
+               }
+           }
+       }
+
+       return true;
+   }
+
+
+   // 辅助方法：前进到路径的下一个节点
+   void advancePath() {
+       if (current_path_index < static_cast<int>(path.size()) - 1) {
+           current_path_index++;
+           target_node_id = (current_path_index + 1 < static_cast<int>(path.size()))
+               ? path[current_path_index + 1]
+               : path[current_path_index];
+       }
+   }
+
+   // 检查是否需要重新规划路径
+   bool needsReplanning(AbstractNode* currentNode, const SubwayGraph& graph) {
+       double now = spawn_time + action_timer;
+       bool congestionTriggered = false;
+
+       if (currentNode && currentNode->getCongestionFactor() > 0.8) {
+           congestionTriggered = true;
+       }
+
+       if (!congestionTriggered && current_path_index < path.size() - 1) {
+           for (int i = current_path_index + 1; i < path.size() && i < current_path_index + 3; i++) {
+               AbstractNode* futureNode = graph.getNode(path[i]);
+               if (futureNode && futureNode->getCongestionFactor() > 0.85) {
+                   congestionTriggered = true;
+                   break;
+               }
+               if (i > 0) {
+                   const Edge* edge = graph.getEdge(path[i - 1], path[i]);
+                   if (edge && edge->getCongestionLevel() > 0.8) {
+                       congestionTriggered = true;
+                       break;
+                   }
+               }
+           }
+       }
+
+       if (congestionTriggered && now - lastCongestionReplanTime > congestionReplanCooldown) {
+           return true;
+       }
+
+       if (now - lastReplanTime > replanInterval) {
+           return true;
+       }
+
+       if (attributes.speed < 0.5 && action_timer > 30.0) {
+           return true;
+       }
+
+       return false;
+   }
+
+
+   // 重新规划路径
+   void replanPath(const std::string& currentId, const std::string& targetId, const SubwayGraph& graph) {
+       PathStrategy currentStrategy = pathStrategy;
+       bool wasCongestionTriggered = isPathCongested(graph);
+
+       if (wasCongestionTriggered) {
+           currentStrategy = PathStrategy::MULTI_OBJECTIVE_OPTIMIZATION;
+       }
+
+       std::vector<int> newPath = graph.findPath(currentId, targetId, currentStrategy);
+       if (!newPath.empty()) {
+           path = newPath;
+           current_path_index = 0;
+           target_node_id = path[0];
+           double now = spawn_time + action_timer;
+           lastReplanTime = now;
+           if (wasCongestionTriggered) {
+               lastCongestionReplanTime = now;
+           }
+       }
+   }
+   // [新增] 检查当前路径是否拥堵
+   bool isPathCongested(const SubwayGraph& graph) const {
+       for (int i = current_path_index; i < path.size() - 1; i++) {
+           AbstractNode* node = graph.getNode(path[i]);
+           if (node && node->getCongestionFactor() > 0.7) {
+               return true;
+           }
+
+           // 检查边的拥堵
+           if (i > 0) {
+               const Edge* edge = graph.getEdge(path[i - 1], path[i]);
+               if (edge && edge->getCongestionLevel() > 0.7) {
+                   return true;
+               }
+           }
+       }
+       return false;
+   }
+
+
+   std::string get_state_string() const {
+       switch (state) {
+       case PassengerState::SPAWNED: return "生成";
+       case PassengerState::ENTERING: return "进站";
+       case PassengerState::TICKETING: return "购票";
+       case PassengerState::SECURITY_CHECK: return "安检";
+       case PassengerState::MOVING_TO_PLATFORM: return "去站台";
+       case PassengerState::FROM_TRAIN: return "列车下车"; // [新增]
+       case PassengerState::ON_PLATFORM: return "站台等待"; // [新增]
+       case PassengerState::WAITING_TRAIN: return "候车";
+       case PassengerState::BOARDING: return "乘车";
+       case PassengerState::MOVING_TO_EXIT: return "去出口";
+       case PassengerState::EXITING: return "出站";
+       case PassengerState::LEFT: return "离开";
+       case PassengerState::IN_QUEUE: return "排队";
+       case PassengerState::PATH_FOLLOWING: return "路径跟随";
+       case PassengerState::IN_TRANSIT: return "通道中";
+       case PassengerState::WAITING_EDGE: return "等待通道";
+       case PassengerState::REPATHING: return "重新规划";
+       case PassengerState::COLLIDING: return "碰撞等待";
+       default: return "未知";
+       }
+   }
+
+   double get_travel_time() const {
+       return exit_time - spawn_time;
+   }
+
+   AbstractNode* getNode(int index) const {
+       if (graphRef) {
+           return graphRef->getNode(index);
+       }
+       return nullptr;
+   }
+};
+
+class CrowdProfile {
+public:
+   std::string name;                   // Profile name
+   double arrival_rate;                // Arrival rate (people/sec)
+   float familiarity_min, familiarity_max;
+   float patience_min, patience_max;
+   float speed_min, speed_max;
+   float luggage_prob;                 // Luggage probability
+   float commute_ratio;                // Commute ratio
+
+   CrowdProfile()
+       : arrival_rate(0.5),
+       familiarity_min(0.5f), familiarity_max(1.0f),
+       patience_min(0.5f), patience_max(1.0f),
+       speed_min(0.8f), speed_max(1.2f),
+       luggage_prob(0.2f), commute_ratio(0.8f) {}
+};
+
+class TimeSlot {
+public:
+   int start_second;       // Start second of day
+   int end_second;         // End second of day
+   int day_mask;           // Bit mask: 1=Monday, 64=Sunday
+   CrowdProfile profile;
+
+   static int time_to_seconds(int hour, int minute) {
+       return 3600 * hour + minute * 60;
+   }
+   static int weekday_mask() {
+       return (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4);
+   }
+   static int weekend_mask() {
+       return (1 << 5) | (1 << 6);
+   }
+   static int daily_mask() {
+       return 0b1111111;
+   }
+};
+
+class VirtualClock {
+private:
+   double total_sim_seconds;
+   int start_day_of_week;
+   int start_hour_of_day;
+
+public:
+   VirtualClock(int start_weekday = 0, int start_hour = 5)
+       : total_sim_seconds(start_hour * 3600), start_day_of_week(start_weekday),
+       start_hour_of_day(start_hour) {}
+
+   void update(double dt) {
+       total_sim_seconds += dt;
+   }
+
+   int get_current_weekday() const {
+       int total_days = static_cast<int>(total_sim_seconds / 86400);
+       return (start_day_of_week + total_days) % 7;
+   }
+
+   int get_seconds_today() const {
+       return static_cast<int>(total_sim_seconds) % 86400;
+   }
+
+   int get_current_hour() const {
+       return get_seconds_today() / 3600;
+   }
+
+   int get_current_minute() const {
+       return (get_seconds_today() % 3600) / 60;
+   }
+
+   std::string get_formatted_time() const {
+       int weekday = get_current_weekday();
+       const char* weekdays[] = { "周一", "周二", "周三", "周四", "周五", "周六", "周日" };
+       std::ostringstream oss;
+       oss << weekdays[weekday] << " "
+           << std::setfill('0') << std::setw(2) << get_current_hour() << ":"
+           << std::setfill('0') << std::setw(2) << get_current_minute();
+       return oss.str();
+   }
+
+   bool is_weekday() const {
+       int weekday = get_current_weekday();
+       return weekday >= 0 && weekday <= 4;
+   }
+
+   bool is_weekend() const {
+       return !is_weekday();
+   }
+
+   double get_total_seconds() const {
+       return total_sim_seconds;
+   }
+};
+
+struct GenerationStats {
+   int weekday_total = 0;
+   int weekend_total = 0;
+   int peak_total = 0;
+   int offpeak_total = 0;
+   std::unordered_map<std::string, int> profile_counts;
+};
+
+class PassengerGenerator {
+private:
+   std::vector<TimeSlot> schedule;
+   VirtualClock& clock;
+   mutable std::mt19937 rng; //修改后可以在const函数中修改
+   int total_generated;
+   GenerationStats stats;
+   SubwayGraph& graphRef; // 引用图
+   // [新增] 用于生成从列车下车的乘客
+   std::vector<std::string> platformIds;
+   int trainPassengerCounter;
+   int maxOnlinePassengers;
+
+public:
+   PassengerGenerator(VirtualClock& c, SubwayGraph& graph, int maxOnline = 2500)
+       : clock(c), graphRef(graph), total_generated(0), trainPassengerCounter(0), maxOnlinePassengers(maxOnline) {
+       unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+       rng.seed(seed);
+       initialize_default_schedule();
+
+       // [新增] 初始化站台ID列表
+       updateStationLayout();
+   }
+   // [新增] 更新车站布局信息
+   void updateStationLayout() {
+       platformIds.clear();
+       for (const auto& node : graphRef.getAllNodes()) {
+           if (node->getTypeCode() == "PLATFORM") {
+               platformIds.push_back(node->getId());
+           }
+       }
+   }
+   // [新增] 生成从列车下车的乘客
+   std::vector<Passenger> generateTrainPassengers(double dt, int remaining = 9999) {
+       std::vector<Passenger> train_passengers;
+
+       if (remaining <= 0) return train_passengers;
+
+       for (const auto& platformId : platformIds) {
+           if (remaining <= 0) break;
+
+           PlatformNode* platform = dynamic_cast<PlatformNode*>(graphRef.getNode(platformId));
+           if (platform && platform->isTrainArrivingNow() && platform->canAcceptTrainPassengers()) {
+               int numPassengers = std::min(8, remaining);
+               for (int i = 0; i < numPassengers; ++i) {
+                   trainPassengerCounter++;
+                   total_generated++;
+
+                   std::string exitId = findRandomExit();
+                   if (!exitId.empty()) {
+                       double currentAbsTime = clock.get_total_seconds();
+                       Passenger p(trainPassengerCounter,
+                           graphRef.getIndex(platformId),
+                           graphRef.getIndex(exitId),
+                           generateDefaultAttributes(),
+                           currentAbsTime,
+                           PathStrategy::SHORTEST_TIME,
+                           true, &graphRef);
+
+                       std::vector<int> path = graphRef.findPath(platformId, exitId, PathStrategy::SHORTEST_TIME);
+                       if (!path.empty()) {
+                           p.setPath(path);
+                           train_passengers.push_back(p);
+                           remaining--;
+                       } else {
+                           trainPassengerCounter--;
+                           total_generated--;
+                       }
+                   } else {
+                       trainPassengerCounter--;
+                       total_generated--;
+                   }
+               }
+           }
+       }
+
+       return train_passengers;
+   }
+   // [新增] 查找随机出口
+   std::string findRandomExit() const {
+       std::vector<std::string> exitIds;
+       for (const auto& node : graphRef.getAllNodes()) {
+           if (node->getTypeCode() == "EXIT") {
+               exitIds.push_back(node->getId());
+           }
+       }
+
+       if (!exitIds.empty()) {
+           std::uniform_int_distribution<> dist(0, exitIds.size() - 1);
+           return exitIds[dist(rng)];
+       }
+       return "";
+   }
+
+   // [新增] 生成默认乘客属性
+   PassengerAttributes generateDefaultAttributes() const {
+       PassengerAttributes attrs;
+       std::uniform_real_distribution<float> speed_dist(0.8f, 1.2f);
+       std::uniform_real_distribution<float> patience_dist(0.5f, 1.0f);
+       std::uniform_real_distribution<float> fam_dist(0.3f, 0.8f);
+       std::bernoulli_distribution luggage_dist(0.1f); // 10%携带行李
+       std::bernoulli_distribution purpose_dist(0.8f); // 80%通勤
+
+       attrs.speed = speed_dist(rng);
+       attrs.patience = patience_dist(rng);
+       attrs.familiarity = fam_dist(rng);
+       attrs.has_luggage = luggage_dist(rng);
+       attrs.purpose = purpose_dist(rng) ? "commute" : "leisure";
+
+       return attrs;
+   }
+
+   void initialize_default_schedule() {
+       // Morning rush hour 7-9 AM on weekdays
+       TimeSlot morning_peak;
+       morning_peak.start_second = TimeSlot::time_to_seconds(7, 0);
+       morning_peak.end_second = TimeSlot::time_to_seconds(9, 0);
+       morning_peak.day_mask = TimeSlot::weekday_mask();
+       morning_peak.profile.name = "工作日早高峰";
+       morning_peak.profile.arrival_rate = 8.0;
+       morning_peak.profile.familiarity_min = 0.8f;
+       morning_peak.profile.familiarity_max = 1.0f;
+       morning_peak.profile.patience_min = 0.4f;
+       morning_peak.profile.patience_max = 0.7f;
+       morning_peak.profile.luggage_prob = 0.15f;
+       morning_peak.profile.commute_ratio = 0.95f;
+       schedule.push_back(morning_peak);
+
+       // Evening rush hour 5-7 PM on weekdays
+       TimeSlot evening_peak;
+       evening_peak.start_second = TimeSlot::time_to_seconds(17, 0);
+       evening_peak.end_second = TimeSlot::time_to_seconds(19, 0);
+       evening_peak.day_mask = TimeSlot::weekday_mask();
+       evening_peak.profile.name = "工作日晚高峰";
+       evening_peak.profile.arrival_rate = 7.0;
+       evening_peak.profile.familiarity_min = 0.8f;
+       evening_peak.profile.familiarity_max = 1.0f;
+       evening_peak.profile.patience_min = 0.3f;
+       evening_peak.profile.patience_max = 0.6f;
+       evening_peak.profile.luggage_prob = 0.2f;
+       evening_peak.profile.commute_ratio = 0.9f;
+       schedule.push_back(evening_peak);
+
+       // Off-peak weekday 9 AM - 5 PM
+       TimeSlot weekday_offpeak;
+       weekday_offpeak.start_second = TimeSlot::time_to_seconds(9, 0);
+       weekday_offpeak.end_second = TimeSlot::time_to_seconds(17, 0);
+       weekday_offpeak.day_mask = TimeSlot::weekday_mask();
+       weekday_offpeak.profile.name = "工作日平峰";
+       weekday_offpeak.profile.arrival_rate = 3.0;
+       weekday_offpeak.profile.familiarity_min = 0.6f;
+       weekday_offpeak.profile.familiarity_max = 0.9f;
+       weekday_offpeak.profile.patience_min = 0.6f;
+       weekday_offpeak.profile.patience_max = 0.9f;
+       weekday_offpeak.profile.luggage_prob = 0.3f;
+       weekday_offpeak.profile.commute_ratio = 0.5f;
+       schedule.push_back(weekday_offpeak);
+
+       // Weekend peak 10 AM - 8 PM
+       TimeSlot weekend_peak;
+       weekend_peak.start_second = TimeSlot::time_to_seconds(10, 0);
+       weekend_peak.end_second = TimeSlot::time_to_seconds(20, 0);
+       weekend_peak.day_mask = TimeSlot::weekend_mask();
+       weekend_peak.profile.name = "周末高峰";
+       weekend_peak.profile.arrival_rate = 4.0;
+       weekend_peak.profile.familiarity_min = 0.3f;
+       weekend_peak.profile.familiarity_max = 0.7f;
+       weekend_peak.profile.patience_min = 0.7f;
+       weekend_peak.profile.patience_max = 1.0f;
+       weekend_peak.profile.luggage_prob = 0.5f;
+       weekend_peak.profile.commute_ratio = 0.2f;
+       schedule.push_back(weekend_peak);
+
+       // Default off-peak
+       TimeSlot default_slot;
+       default_slot.start_second = 0;
+       default_slot.end_second = 86400;
+       default_slot.day_mask = TimeSlot::daily_mask();
+       default_slot.profile.name = "默认平峰";
+       default_slot.profile.arrival_rate = 2.0;
+       schedule.push_back(default_slot);
+   }
+
+   const CrowdProfile* get_current_profile() {
+       int weekday = clock.get_current_weekday();
+       int sec_today = clock.get_seconds_today();
+
+       for (const auto& slot : schedule) {
+           bool day_match = (slot.day_mask & (1 << weekday));
+           bool time_match = (sec_today >= slot.start_second &&
+               sec_today < slot.end_second);
+           if (day_match && time_match) {
+               return &slot.profile;
+           }
+       }
+
+       return &schedule.back().profile;
+   }
+   // [新增] 生成入口进站乘客的方法（分离原有逻辑）
+   std::vector<Passenger> generateEntryPassengers(double dt, int remaining = 9999) {
+       std::vector<Passenger> new_passengers;
+       const CrowdProfile* profile = get_current_profile();
+
+       if (!profile || remaining <= 0) return new_passengers;
+
+       double rate = profile->arrival_rate;
+
+       std::poisson_distribution<int> dist(rate * dt);
+       int count = dist(rng);
+       count = std::min(count, remaining);
+
+       if (count > 0) {
+           new_passengers.reserve(count);
+
+           std::uniform_real_distribution<float> speed_dist(
+               profile->speed_min, profile->speed_max);
+           std::uniform_real_distribution<float> patience_dist(
+               profile->patience_min, profile->patience_max);
+           std::uniform_real_distribution<float> fam_dist(
+               profile->familiarity_min, profile->familiarity_max);
+           std::bernoulli_distribution luggage_dist(profile->luggage_prob);
+           std::bernoulli_distribution purpose_dist(profile->commute_ratio);
+
+           // 获取所有入口和出口节点
+           std::vector<std::string> hallIds;
+           std::vector<std::string> exitIds;
+           std::vector<std::string> platformIds;
+           for (const auto& node : graphRef.getAllNodes()) {
+               if (node->getTypeCode() == "HALL") {
+                   hallIds.push_back(node->getId());
+               }
+               else if (node->getTypeCode() == "EXIT") {
+                   exitIds.push_back(node->getId());
+               }
+               else if (node->getTypeCode() == "PLATFORM") {
+                   platformIds.push_back(node->getId());
+               }
+           }
+
+           if (hallIds.empty() || (exitIds.empty() && platformIds.empty())) {
+               return new_passengers;
+           }
+
+           std::uniform_int_distribution<> hallDist(0, hallIds.size() - 1);
+           std::uniform_int_distribution<> exitDist(0, exitIds.size() - 1);
+           std::uniform_int_distribution<> platformDist(0, platformIds.size() - 1);
+           std::bernoulli_distribution direction_dist(0.6);
+
+           for (int i = 0; i < count; ++i) {
+               total_generated++;
+               PassengerAttributes attrs;
+               attrs.speed = speed_dist(rng);
+               attrs.patience = patience_dist(rng);
+               attrs.familiarity = fam_dist(rng);
+               attrs.has_luggage = luggage_dist(rng);
+               attrs.purpose = purpose_dist(rng) ? "commute" : "leisure";
+
+               // 根据乘客特征和时间选择路径规划策略
+               PathStrategy strategy = PathStrategy::MULTI_OBJECTIVE_OPTIMIZATION;
+
+               // 如果有行李，选择最短距离
+               if (attrs.has_luggage) {
+                   strategy = PathStrategy::SHORTEST_DISTANCE;
+               }
+               // 如果是上班高峰期且是通勤目的，选择最短时间
+               else if (purpose_dist(rng) && (clock.get_current_hour() >= 7 && clock.get_current_hour() <= 9)) {
+                   strategy = PathStrategy::SHORTEST_TIME;
+               }
+
+               std::string startId = hallIds[hallDist(rng)];
+               std::string endId;
+               bool headingToPlatform = direction_dist(rng) && !platformIds.empty();
+               if (headingToPlatform) {
+                   endId = platformIds[platformDist(rng)];
+               }
+               else if (!exitIds.empty()) {
+                   endId = exitIds[exitDist(rng)];
+               }
+               else {
+                   endId = platformIds[platformDist(rng)];
+                   headingToPlatform = true;
+               }
+
+               new_passengers.emplace_back(total_generated, graphRef.getIndex(startId), graphRef.getIndex(endId),
+                   attrs, clock.get_total_seconds(), strategy, false, &graphRef);
+
+               if (headingToPlatform) {
+                   new_passengers.back().isFromTrain = false;
+                   new_passengers.back().headingToPlatform = true;
+               }
+
+               // 计算路径
+               std::vector<int> path = graphRef.findPath(startId, endId, strategy);
+
+            if (!path.empty()) {
+                new_passengers.back().setPath(path);
+            } 
+            else {
+                // 【必须加上】路径不通，直接丢弃，防止内存越界污染整个系统
+                new_passengers.pop_back();
+                total_generated--; 
+            }
+           }
+
+           // Update stats
+           stats.profile_counts[profile->name] += count;
+           if (clock.is_weekday()) {
+               stats.weekday_total += count;
+               if (rate >= 2.0) stats.peak_total += count;
+               else stats.offpeak_total += count;
+           }
+           else {
+               stats.weekend_total += count;
+           }
+       }
+
+       return new_passengers;
+   }
+   // [修改] generate方法 - 雙重生成入口乘客和列车乘客
+   std::vector<Passenger> generate(double dt, int currentOnlineCount = 0) {
+       std::vector<Passenger> all_passengers;
+
+       if (currentOnlineCount >= maxOnlinePassengers) {
+           return all_passengers;
+       }
+
+       int remaining = maxOnlinePassengers - currentOnlineCount;
+
+       // 生成入口进站乘客（原有逻辑）
+       std::vector<Passenger> entry_passengers = generateEntryPassengers(dt, remaining);
+       all_passengers.insert(all_passengers.end(),
+           entry_passengers.begin(), entry_passengers.end());
+
+       remaining = maxOnlinePassengers - currentOnlineCount - static_cast<int>(all_passengers.size());
+       if (remaining <= 0) return all_passengers;
+
+       // 生成列车下车乘客（新增逻辑）
+       std::vector<Passenger> train_passengers = generateTrainPassengers(dt, remaining);
+       all_passengers.insert(all_passengers.end(),
+           train_passengers.begin(), train_passengers.end());
+
+       return all_passengers;
+   }
+
+   void print_stats() const {
+       std::cout << "\n========== 客流生成统计 ==========" << std::endl;
+       std::cout << "总生成人数：" << total_generated << " (入口进站: " << (total_generated - trainPassengerCounter) << ", 列车下车: " << trainPassengerCounter << ")" << std::endl;
+       std::cout << "工作日客流：" << stats.weekday_total << std::endl;
+       std::cout << "周末客流：" << stats.weekend_total << std::endl;
+       std::cout << "高峰时段客流：" << stats.peak_total << std::endl;
+       std::cout << "平峰时段客流：" << stats.offpeak_total << std::endl;
+       std::cout << "\n各时段分布：" << std::endl;
+       for (const auto& pair : stats.profile_counts) {
+           std::cout << "  " << pair.first << ": " << pair.second << " 人" << std::endl;
+       }
+       std::cout << "================================" << std::endl;
+   }
+
+   int get_total_generated() const { return total_generated; }
+};
+
+class SimulationStatistics {
+public:
+   struct NodeStats {
+       int max_load = 0;
+       int total_visits = 0;
+       double total_wait_time = 0.0;
+       double avg_congestion = 0.0;
+       int total_queue_time = 0;    // 总排队时间
+       int total_queued = 0;        // 总排队人数
+   };
+
+
+
+   std::unordered_map<std::string, NodeStats> node_statistics;
+   std::vector<double> passenger_times;
+   int total_passengers = 0;
+
+   void record_node_usage(const std::string& node_id, int load, double congestion, double wait_time = 0.0) {
+       auto& stats = node_statistics[node_id];
+       if (load > stats.max_load) stats.max_load = load;
+       stats.total_visits++;
+       stats.avg_congestion = (stats.avg_congestion * (stats.total_visits - 1) + congestion) / stats.total_visits;
+       stats.total_wait_time += wait_time;
+   }
+
+   void record_queue_time(const std::string& node_id, int queue_time) {
+       auto& stats = node_statistics[node_id];
+       stats.total_queue_time += queue_time;
+       stats.total_queued++;
+   }
+
+   void record_passenger_time(double time) {
+       passenger_times.push_back(time);
+       total_passengers++;
+   }
+
+   void print_analysis() const {
+       std::cout << "\n========== 仿真统计分析 ==========" << std::endl;
+
+       // Bottleneck identification
+       std::vector<std::pair<std::string, double>> congestion_ranking;
+       for (const auto& entry : node_statistics) {
+           congestion_ranking.push_back({ entry.first, entry.second.avg_congestion });
+       }
+       std::sort(congestion_ranking.begin(), congestion_ranking.end(),
+           [](const auto& a, const auto& b) { return a.second > b.second; });
+
+       std::cout << "拥堵排名前5的节点:" << std::endl;
+       for (int i = 0; i < std::min<int>(5, (int)congestion_ranking.size()); i++) {
+           const auto& item = congestion_ranking[i];
+           std::cout << "  " << item.first << ": " << std::fixed << std::setprecision(2) << item.second << std::endl;
+       }
+
+       // Average travel time
+       if (!passenger_times.empty()) {
+           double total_time = 0.0;
+           for (double t : passenger_times) total_time += t;
+           std::cout << "平均通行时间: " << std::fixed << std::setprecision(2)
+               << total_time / passenger_times.size() << " 秒" << std::endl;
+       }
+
+       // Queue analysis
+       std::cout << "\n排队时间统计:" << std::endl;
+       std::vector<std::pair<std::string, double>> queue_ranking;
+       for (const auto& pair : node_statistics) {
+           const std::string& id = pair.first;
+           const NodeStats& stats = pair.second;
+           if (stats.total_queued > 0) {
+               queue_ranking.push_back({ id, static_cast<double>(stats.total_queue_time) / stats.total_queued });
+           }
+       }
+       std::sort(queue_ranking.begin(), queue_ranking.end(),
+           [](const auto& a, const auto& b) { return a.second > b.second; });
+
+       for (int i = 0; i < std::min<int>(5, (int)queue_ranking.size()); i++) {
+           const auto& item = queue_ranking[i];
+           const std::string& id = item.first;
+           double avg_queue_time = item.second;
+           std::cout << "  " << id << ": " << std::fixed << std::setprecision(2) << avg_queue_time << " 秒" << std::endl;
+       }
+
+       // Peak load analysis
+       std::cout << "最大负载节点:" << std::endl;
+       std::vector<std::pair<std::string, int>> load_ranking;
+       for (const auto& entry : node_statistics) {
+           load_ranking.push_back({ entry.first, entry.second.max_load });
+       }
+       std::sort(load_ranking.begin(), load_ranking.end(),
+           [](const auto& a, const auto& b) { return a.second > b.second; });
+
+       for (int i = 0; i < std::min<int>(5, (int)load_ranking.size()); i++) {
+           const auto& item = load_ranking[i];
+           std::cout << "  " << item.first << ": " << item.second << std::endl;
+       }
+
+       std::cout << "================================" << std::endl;
+   }
+};
+
+class SimulationManager {
+private:
+   VirtualClock clock;
+   PassengerGenerator generator;
+   std::vector<Passenger> passengers;
+   std::vector<Passenger> completed_passengers;
+   double sim_time;
+   double dt;
+   SubwayGraph& graph;
+   SimulationStatistics statistics;
+   // [新增] 统计列车相关数据
+   int totalTrainPassengersGenerated = 0;
+   int totalTrainArrivals = 0;
+public:
+   SimulationManager(SubwayGraph& g, int maxOnline = 2500)
+       : clock(0, 5), generator(clock, g, maxOnline), sim_time(0.0), dt(1.0), graph(g) {}
+
+   // [修改] run方法 - 处理列车乘客
+   void run(int steps) {
+       std::cout << "========== 地铁站人群流动仿真 ==========" << std::endl;
+       std::cout << "仿真开始时间：" << clock.get_formatted_time() << std::endl;
+       std::cout << "时间步长：" << dt << "秒" << std::endl;
+       std::cout << "总步数：" << steps << std::endl;
+       std::cout << "========================================\n" << std::endl;
+
+       for (int i = 0; i < steps; ++i) {
+           // 1. Update graph nodes and edges FIRST (so nodes assign services before passengers check)
+           for (auto& node : graph.getAllNodes()) {
+               node->update(dt);
+           }
+           graph.update(dt);
+
+           // 2. Generate new passengers
+           auto new_p = generator.generate(dt, static_cast<int>(passengers.size()));
+           passengers.insert(passengers.end(),
+               std::make_move_iterator(new_p.begin()),
+               std::make_move_iterator(new_p.end()));
+
+           // 3. Update all passenger states
+           int replansThisFrame = 0;
+           const int maxReplansPerFrame = 30;
+
+           for (size_t idx = 0; idx < passengers.size(); ) {
+               auto* current_node = graph.getNode(passengers[idx].current_node_id);
+
+               if (!current_node) {
+                   idx++;
+                   continue;
+               }
+
+               int node_load = current_node->getCurrentLoad();
+               int node_capacity = current_node->getCapacity();
+               double node_service_time = current_node->getPassThroughTime();
+
+               bool active = passengers[idx].update(dt, node_load, node_capacity, node_service_time, current_node, graph, replansThisFrame, maxReplansPerFrame);
+
+               if (!active) {
+                   if (passengers[idx].exit_time > 0) {
+                       statistics.record_passenger_time(passengers[idx].get_travel_time());
+                   }
+
+                   completed_passengers.push_back(std::move(passengers[idx]));
+                   passengers[idx] = std::move(passengers.back());
+                   passengers.pop_back();
+               }
+               else {
+                   idx++;
+               }
+           }
+
+           // 4. Record statistics periodically
+           if (i % 10 == 0) {
+               for (const auto& node : graph.getAllNodes()) {
+                   statistics.record_node_usage(
+                       node->getId(),
+                       node->getCurrentLoad(),
+                       node->getCongestionFactor()
+                   );
+
+                   // Record queue information
+                   if (node->getQueueLength() > 0) {
+                       statistics.record_queue_time(node->getId(), node->getQueueLength());
+                   }
+               }
+           }
+
+           // 5. Output status periodically
+           if (i % 100 == 0) {
+               std::cout << "[" << clock.get_formatted_time() << "] "
+                   << "在线人数：" << passengers.size()
+                   << " | 累计生成：" << generator.get_total_generated()
+                   << " | 已完成：" << completed_passengers.size()
+                   << std::endl;
+
+               // Show sample passenger states
+               if (!passengers.empty()) {
+                   std::cout << "  乘客状态示例：";
+                   int count = 0;
+                   for (const auto& p : passengers) {
+                       if (count++ >= 5) break;
+                       std::cout << p.get_state_string() << " ";
+                   }
+                   std::cout << std::endl;
+               }
+           }
+
+           // 6. Update time
+           sim_time += dt;
+           clock.update(dt);
+       }
+
+       // Output final report
+       std::cout << "\n========== 仿真结束 ==========" << std::endl;
+       std::cout << "结束时间：" << clock.get_formatted_time() << std::endl;
+       std::cout << "仿真总时长：" << sim_time / 3600 << " 小时" << std::endl;
+       std::cout << "累计服务总人数：" << passengers.size() + completed_passengers.size() << std::endl;
+       std::cout << "完成通行人数：" << completed_passengers.size() << std::endl;
+
+       // Calculate average travel time
+       if (!completed_passengers.empty()) {
+           double total_time = 0.0;
+           for (const auto& p : completed_passengers) {
+               total_time += p.get_travel_time();
+           }
+           std::cout << "平均通行时间：" << std::fixed << std::setprecision(2)
+               << total_time / completed_passengers.size() << " 秒" << std::endl;
+       }
+
+       generator.print_stats();
+       statistics.print_analysis();
+   }
+};
+
+//Main function to demonstrate the system
+int main() {
+  std::cout << "地铁站人群流动仿真系统启动..." << std::endl;
+
+  // 创建地铁图
+  SubwayGraph graph;
+
+  if (!graph.loadFromCSV("subway_config.csv")) {
+      std::cerr << "错误：无法加载配置文件！请检查文件是否在 Debug 目录下。" << std::endl;
+      return -1; // 如果加载失败，直接退出
+  }
+
+  std::cout << "成功加载 " << graph.getAllNodes().size() << " 个节点。" << std::endl;
+
+  // --- 可视化检查 ---
+  // 注意：如果节点太多（200个），visualize() 打印到控制台会非常慢且刷屏
+  // 建议调试时先注释掉 visualize
+  // graph.visualize(); 
+
+  // 创建仿真管理器并运行
+  SimulationManager sim(graph);
+  sim.run(14400); // 运行 2 小时的仿真
+
+  return 0;
+}
