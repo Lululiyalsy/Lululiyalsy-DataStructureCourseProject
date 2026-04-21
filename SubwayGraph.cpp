@@ -42,7 +42,7 @@ void SubwayGraph::rebuildCongestionCache() const {
 }
 
 std::vector<int> SubwayGraph::shortestDistancePath(int startIdx, int endIdx) const {
-    if (startIdx < 0 || endIdx < 0 || startIdx >= static_cast<int>(nodes_.size()) || endIdx >= static_cast<int>(nodes_.size())) return {};
+    if (startIdx < 0 || endIdx < 0 || startIdx >= nodes_.size() || endIdx >= nodes_.size()) return {};
     const double INF = 1e18;
     resetPathBuffers(INF);
     pathDist_[startIdx] = 0.0;
@@ -56,7 +56,7 @@ std::vector<int> SubwayGraph::shortestDistancePath(int startIdx, int endIdx) con
         if (pathVisited_[u]) continue;
         pathVisited_[u] = true;
         if (u == endIdx) break;
-        if (u >= static_cast<int>(adjList_.size())) continue;
+        if (u >= adjList_.size()) continue;
         for (const auto& edge : adjList_[u]) {
             int v = edge.getToIndex();
             if (v < 0 || v >= static_cast<int>(nodes_.size())) continue;
@@ -76,7 +76,7 @@ std::vector<int> SubwayGraph::shortestDistancePath(int startIdx, int endIdx) con
 }
 
 std::vector<int> SubwayGraph::shortestTimePath(int startIdx, int endIdx) const {
-    if (startIdx < 0 || endIdx < 0 || startIdx >= static_cast<int>(nodes_.size()) || endIdx >= static_cast<int>(nodes_.size())) return {};
+    if (startIdx < 0 || endIdx < 0 || startIdx >= nodes_.size() || endIdx >= nodes_.size()) return {};
     const double INF = 1e18;
     resetPathBuffers(INF);
     pathDist_[startIdx] = 0.0;
@@ -90,7 +90,7 @@ std::vector<int> SubwayGraph::shortestTimePath(int startIdx, int endIdx) const {
         if (pathVisited_[u]) continue;
         pathVisited_[u] = true;
         if (u == endIdx) break;
-        if (u >= static_cast<int>(adjList_.size())) continue;
+        if (u >= adjList_.size()) continue;
         for (const auto& edge : adjList_[u]) {
             int v = edge.getToIndex();
             if (v < 0 || v >= static_cast<int>(nodes_.size())) continue;
@@ -115,7 +115,7 @@ std::vector<int> SubwayGraph::shortestTimePath(int startIdx, int endIdx) const {
 }
 
 std::vector<int> SubwayGraph::multiObjectivePath(int startIdx, int endIdx) const {
-    if (startIdx < 0 || endIdx < 0 || startIdx >= static_cast<int>(nodes_.size()) || endIdx >= static_cast<int>(nodes_.size())) return {};
+    if (startIdx < 0 || endIdx < 0 || startIdx >= nodes_.size() || endIdx >= nodes_.size()) return {};
     const double INF = 1e18;
     resetPathBuffers(INF);
     pathDist_[startIdx] = 0.0;
@@ -130,7 +130,7 @@ std::vector<int> SubwayGraph::multiObjectivePath(int startIdx, int endIdx) const
         if (pathVisited_[u]) continue;
         pathVisited_[u] = true;
         if (u == endIdx) break;
-        if (u >= static_cast<int>(adjList_.size())) continue;
+        if (u >= adjList_.size()) continue;
         for (const auto& edge : adjList_[u]) {
             int v = edge.getToIndex();
             if (v < 0 || v >= static_cast<int>(nodes_.size())) continue;
@@ -167,7 +167,7 @@ std::vector<int> SubwayGraph::multiObjectivePath(int startIdx, int endIdx) const
 }
 
 double SubwayGraph::estimateFutureCongestion(int startIdx, int endIdx, int lookAheadSteps) const {
-    if (startIdx < 0 || endIdx < 0 || startIdx >= static_cast<int>(nodes_.size())) return 0.0;
+    if (startIdx < 0 || endIdx < 0 || startIdx >= nodes_.size()) return 0.0;
     ensurePathBuffers();
     size_t n = nodes_.size();
     double totalCongestion = 0.0;
@@ -182,12 +182,12 @@ double SubwayGraph::estimateFutureCongestion(int startIdx, int endIdx, int lookA
         int u = estQueue_.front(); estQueue_.pop();
         if (estLevel_[u] > lookAheadSteps) break;
         if (u != startIdx) {
-            if (u < static_cast<int>(n) && nodes_[u]) { totalCongestion += congestionCache_[u]; steps++; }
+            if (u < n && nodes_[u]) { totalCongestion += congestionCache_[u]; steps++; }
         }
-        if (u >= static_cast<int>(adjList_.size())) continue;
+        if (u >= adjList_.size()) continue;
         for (const auto& edge : adjList_[u]) {
             int v = edge.getToIndex();
-            if (v >= 0 && v < static_cast<int>(n) && !estVisited_[v] && estLevel_[v] == -1) {
+            if (v >= 0 && v < n && !estVisited_[v] && estLevel_[v] == -1) {
                 estVisited_[v] = true;
                 estLevel_[v] = estLevel_[u] + 1;
                 estQueue_.push(v);
@@ -217,7 +217,7 @@ int SubwayGraph::addNode(std::unique_ptr<AbstractNode> node) {
 
 bool SubwayGraph::removeNode(const std::string& id) {
     int idx = getIndex(id);
-    if (idx < 0 || idx >= static_cast<int>(nodes_.size())) return false;
+    if (idx < 0 || idx >= nodes_.size()) return false;
     for (auto& edges : adjList_) {
         edges.erase(std::remove_if(edges.begin(), edges.end(), [idx](const Edge& e) { return e.getToIndex() == idx; }), edges.end());
     }
@@ -247,7 +247,7 @@ AbstractNode* SubwayGraph::getNode(const std::string& id) const {
 }
 
 AbstractNode* SubwayGraph::getNode(int index) const {
-    return (index >= 0 && index < static_cast<int>(nodes_.size())) ? nodes_[index].get() : nullptr;
+    return (index >= 0 && index < nodes_.size()) ? nodes_[index].get() : nullptr;
 }
 
 const std::vector<std::unique_ptr<AbstractNode>>& SubwayGraph::getAllNodes() const { return nodes_; }
@@ -274,13 +274,13 @@ bool SubwayGraph::removeEdge(const std::string& fromId, const std::string& toId)
 const Edge* SubwayGraph::getEdge(const std::string& fromId, const std::string& toId) const { return getEdge(getIndex(fromId), getIndex(toId)); }
 
 const Edge* SubwayGraph::getEdge(int fromIdx, int toIdx) const {
-    if (fromIdx < 0 || fromIdx >= static_cast<int>(adjList_.size())) return nullptr;
+    if (fromIdx < 0 || fromIdx >= adjList_.size()) return nullptr;
     for (const auto& e : adjList_[fromIdx]) { if (e.getToIndex() == toIdx) return &e; }
     return nullptr;
 }
 
 Edge* SubwayGraph::getEdgeMutable(int fromIdx, int toIdx) const {
-    if (fromIdx < 0 || fromIdx >= static_cast<int>(adjList_.size())) return nullptr;
+    if (fromIdx < 0 || fromIdx >= adjList_.size()) return nullptr;
     for (auto& e : adjList_[fromIdx]) { if (e.getToIndex() == toIdx) return &e; }
     return nullptr;
 }
@@ -289,7 +289,7 @@ Edge* SubwayGraph::getEdgeMutable(const std::string& fromId, const std::string& 
 
 const std::vector<Edge>& SubwayGraph::getNeighbors(int index) const {
     static const std::vector<Edge> empty;
-    return (index >= 0 && index < static_cast<int>(adjList_.size())) ? adjList_[index] : empty;
+    return (index >= 0 && index < adjList_.size()) ? adjList_[index] : empty;
 }
 
 int SubwayGraph::getIndex(const std::string& id) const {
@@ -299,7 +299,7 @@ int SubwayGraph::getIndex(const std::string& id) const {
 
 const std::string& SubwayGraph::getId(int index) const {
     static const std::string empty;
-    return (index >= 0 && index < static_cast<int>(indexToId_.size())) ? indexToId_[index] : empty;
+    return (index >= 0 && index < indexToId_.size()) ? indexToId_[index] : empty;
 }
 
 bool SubwayGraph::hasNode(const std::string& id) const { return idToIndex_.count(id) > 0; }
@@ -308,7 +308,7 @@ std::vector<int> SubwayGraph::findPath(const std::string& startId, const std::st
     int startIdx = getIndex(startId);
     int endIdx = getIndex(endId);
     if (startIdx < 0 || endIdx < 0) { std::cout << "\u8def\u5f84\u89c4\u5212\u9519\u8bef: \u8d77\u70b9\u6216\u7ec8\u70b9\u4e0d\u5b58\u5728 - " << startId << " -> " << endId << std::endl; return {}; }
-    if (startIdx >= static_cast<int>(nodes_.size()) || endIdx >= static_cast<int>(nodes_.size())) { std::cout << "\u8def\u5f84\u89c4\u5212\u9519\u8bef: \u7d22\u5f15\u8d85\u51fa\u8303\u56f4" << std::endl; return {}; }
+    if (startIdx >= nodes_.size() || endIdx >= nodes_.size()) { std::cout << "\u8def\u5f84\u89c4\u5212\u9519\u8bef: \u7d22\u5f15\u8d85\u51fa\u8303\u56f4" << std::endl; return {}; }
     switch (strategy) {
     case PathStrategy::SHORTEST_DISTANCE: return shortestDistancePath(startIdx, endIdx);
     case PathStrategy::SHORTEST_TIME: return shortestTimePath(startIdx, endIdx);
@@ -453,52 +453,4 @@ void SubwayGraph::updateAllEdgeCongestion() const {
             edge.updateCongestion();
         }
     }
-}
-
-void SubwayGraph::createDefaultStation() {
-    auto hall = std::make_unique<HallNode>("H1", 1, POINT{50, 50}, 200, 1.2, 1.0);
-    addNode(std::move(hall));
-    auto security = std::make_unique<SecurityNode>("S1", 1, POINT{100, 50}, 50, 1.0, 1.0, 3, 5.0, false);
-    addNode(std::move(security));
-    auto ticket = std::make_unique<TicketNode>("T1", 1, POINT{100, 100}, 30, 1.0, 1.0, 4, 10.0, true);
-    addNode(std::move(ticket));
-    auto gate = std::make_unique<GateNode>("G1", 1, POINT{150, 50}, 40, 1.0, 1.0, 6, true);
-    addNode(std::move(gate));
-    auto platform = std::make_unique<PlatformNode>("P1", 0, POINT{200, 50}, 300, 1.0, 1.0, "Line1", 0, 150, true, 60.0);
-    addNode(std::move(platform));
-    auto exitNode = std::make_unique<ExitNode>("E1", 1, POINT{0, 50}, 100, 1.5, 1.0, "\u4e3b\u51fa\u53e3", "\u4eba\u6c11\u8def", false, 3);
-    addNode(std::move(exitNode));
-    auto stair = std::make_unique<StairNode>("ST1", 0, POINT{175, 50}, 30, 0.8, 1.2, 20, 0);
-    addNode(std::move(stair));
-
-    Edge e1; e1.setLength(20.0); e1.setWidth(3.0); e1.setBaseVelocity(1.2);
-    addEdge("E1", "H1", e1);
-    Edge e2; e2.setLength(15.0); e2.setWidth(2.0); e2.setBaseVelocity(1.0);
-    addEdge("H1", "T1", e2);
-    Edge e3; e3.setLength(15.0); e3.setWidth(2.0); e3.setBaseVelocity(1.0);
-    addEdge("H1", "S1", e3);
-    Edge e4; e4.setLength(10.0); e4.setWidth(2.0); e4.setBaseVelocity(1.0);
-    addEdge("T1", "G1", e4);
-    Edge e5; e5.setLength(10.0); e5.setWidth(2.0); e5.setBaseVelocity(1.0);
-    addEdge("S1", "G1", e5);
-    Edge e6; e6.setLength(25.0); e6.setWidth(2.5); e6.setBaseVelocity(1.0);
-    addEdge("G1", "ST1", e6);
-    Edge e7; e7.setLength(15.0); e7.setWidth(2.0); e7.setIsEscalator(true); e7.setBaseVelocity(0.5);
-    addEdge("ST1", "P1", e7);
-    Edge e8; e8.setLength(15.0); e8.setWidth(2.0); e8.setIsEscalator(true); e8.setBaseVelocity(0.5);
-    addEdge("P1", "ST1", e8);
-    Edge e9; e9.setLength(25.0); e9.setWidth(2.5); e9.setBaseVelocity(1.0);
-    addEdge("ST1", "G1", e9);
-    Edge e10; e10.setLength(10.0); e10.setWidth(2.0); e10.setBaseVelocity(1.0);
-    addEdge("G1", "S1", e10);
-    Edge e11; e11.setLength(10.0); e11.setWidth(2.0); e11.setBaseVelocity(1.0);
-    addEdge("G1", "T1", e11);
-    Edge e12; e12.setLength(15.0); e12.setWidth(2.0); e12.setBaseVelocity(1.0);
-    addEdge("S1", "H1", e12);
-    Edge e13; e13.setLength(15.0); e13.setWidth(2.0); e13.setBaseVelocity(1.0);
-    addEdge("T1", "H1", e13);
-    Edge e14; e14.setLength(20.0); e14.setWidth(3.0); e14.setBaseVelocity(1.2);
-    addEdge("H1", "E1", e14);
-
-    std::cout << "\u9ed8\u8ba4\u7ad9\u70b9\u5df2\u521b\u5efa: 7\u4e2a\u8282\u70b9, " << getEdgeCount() << "\u6761\u8fb9" << std::endl;
 }

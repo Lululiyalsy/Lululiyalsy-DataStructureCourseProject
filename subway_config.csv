@@ -1,8 +1,8 @@
 ﻿recordType,type,id,floor,x,y,capacity,baseVelocity,sensitivity,length,width,scannerCount,checkTimePerPerson,hasBannedItem,windowCount,buyTimePerPerson,hasAutoMachine,gateCount,isBidirectional,exitName,connectedStreet,isOneWay,totalExits,lineName,direction,waitCap,hasScreenDoor,nextTrainIn,stepCount,isEscalator
-NODE,EXIT,EXIT_A,1,0,0,200,1.5,1.0,,,,,,,,,A出口,人民大道,1,4,,,,,,,,,,
-NODE,EXIT,EXIT_B,1,100,0,200,1.5,1.0,,,,,,,,,B出口,南京路,1,4,,,,,,,,,,
-NODE,EXIT,EXIT_C,1,0,100,200,1.5,1.0,,,,,,,,,C出口,西藏路,1,4,,,,,,,,,,
-NODE,EXIT,EXIT_D,1,100,100,200,1.5,1.0,,,,,,,,,D出口,淮海路,1,4,,,,,,,,,,
+NODE,EXIT,EXIT_A,1,0,0,200,1.5,1.0,A出口,人民大道,1,4,,,,,,,,,,,,,,,,,,
+NODE,EXIT,EXIT_B,1,100,0,200,1.5,1.0,B出口,南京路,1,4,,,,,,,,,,,,,,,,,,
+NODE,EXIT,EXIT_C,1,0,100,200,1.5,1.0,C出口,西藏路,1,4,,,,,,,,,,,,,,,,,,
+NODE,EXIT,EXIT_D,1,100,100,200,1.5,1.0,D出口,淮海路,1,4,,,,,,,,,,,,,,,,,,
 NODE,HALL,HALL_A1,1,15,0,150,1.2,1.0,,,,,,,,,,,,,,,,,,,,
 NODE,HALL,HALL_A2,1,30,0,150,1.2,1.0,,,,,,,,,,,,,,,,,,,,
 NODE,HALL,HALL_B1,1,70,0,150,1.2,1.0,,,,,,,,,,,,,,,,,,,,

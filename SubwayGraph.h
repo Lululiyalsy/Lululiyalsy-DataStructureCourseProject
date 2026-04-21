@@ -75,5 +75,4 @@ public:
     int getNodeCount() const { return static_cast<int>(nodes_.size()); } // 节点数
     int getEdgeCount() const; // 边数
     void updateAllEdgeCongestion() const; // 更新所有边拥堵
-    void createDefaultStation(); // 创建默认站点
 };
