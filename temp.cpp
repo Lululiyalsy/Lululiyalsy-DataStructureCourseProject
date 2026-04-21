@@ -15,11 +15,11 @@
 // #include <cmath>
 // #include <ctime>
 
-// struct Point {
+// struct MyPoint {
 //    int x;
 //    int y;
 // };
-// using POINT = Point;
+// using POINT = MyPoint;
 
 // // Forward declarations
 // class AbstractNode;

@@ -1,11 +1,11 @@
 #pragma once
 #include <string>
 
-struct Point {
+struct MyPoint {
     int x; // 横坐标
     int y; // 纵坐标
 };
-using POINT = Point; // 位置点别名
+using POINT = MyPoint; // 位置点别名
 
 // 安全字符串转整数（自动清理引号，失败返回默认值）
 inline int safeStoi(const std::string& str, int defaultVal = 0) {
