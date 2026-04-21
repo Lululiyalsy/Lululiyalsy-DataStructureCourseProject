@@ -204,9 +204,8 @@ private:
 class StairNode : public AbstractNode {
 public:
     int stepCount;              // 台阶数
-    int direction;              // 方向
-    StairNode(const std::string& id, int floor, POINT pos, int cap, double vel, double sens, int steps, int dir)
-        : AbstractNode(id, floor, pos, cap, vel, sens, 0.8, 2), stepCount(steps), direction(dir) {}
+    StairNode(const std::string& id, int floor, POINT pos, int cap, double vel, double sens, int steps)
+        : AbstractNode(id, floor, pos, cap, vel, sens, 0.8, 2), stepCount(steps) {}
     std::string getTypeName() const override { return "\u697c\u68af"; }
     std::string getTypeCode() const override { return "STAIR"; }
     void render() const override;

@@ -259,7 +259,6 @@ void StairNode::render() const {
 std::map<std::string, std::string> StairNode::toProperties() const {
     auto props = AbstractNode::toProperties();
     props["stepCount"] = std::to_string(stepCount);
-    props["direction"] = std::to_string(direction);
     return props;
 }
 
@@ -299,7 +298,7 @@ std::unique_ptr<AbstractNode> NodeFactory::createNode(const std::string& typeCod
             safeStoi(props.at("waitCap")), props.at("hasScreenDoor") == "1", safeStod(props.at("nextTrainIn")));
     }
     if (typeCode == "STAIR") {
-        return std::make_unique<StairNode>(id, floor, pos, cap, vel, sens, safeStoi(props.at("stepCount")), safeStoi(props.at("direction")));
+        return std::make_unique<StairNode>(id, floor, pos, cap, vel, sens, safeStoi(props.at("stepCount")));
     }
     return nullptr;
 }

@@ -571,77 +571,85 @@
 
 // };
 
+// // ==========================================
+// // 更新：修改 StairNode 类，移除 direction 属性
+// // ==========================================
 // class StairNode : public AbstractNode {
 // public:
-//    int stepCount;
-//    int direction; // 0: down, 1: up
+//     int stepCount;
+//     // 更新：已移除 int direction;
 
-//    StairNode(const std::string& id, int floor, POINT pos, int cap, double vel, double sens, int steps, int dir)
-//        : AbstractNode(id, floor, pos, cap, vel, sens, 0.8, 2), stepCount(steps), direction(dir) {}
+//     // 更新：修改构造函数，移除 dir 参数
+//     StairNode(const std::string& id, int floor, POINT pos, int cap, double vel, double sens, int steps)
+//         : AbstractNode(id, floor, pos, cap, vel, sens, 0.8, 2), stepCount(steps) {
+//     }
 
-//    std::string getTypeName() const override { return "楼梯"; }
-//    std::string getTypeCode() const override { return "STAIR"; }
+//     std::string getTypeName() const override { return "楼梯"; }
+//     std::string getTypeCode() const override { return "STAIR"; }
 
-//    void render() const override {
-//        std::cout << "楼梯: " << id << ", 人数: " << currentLoad << ", 拥堵: " << congestionFactor
-//            << ", 队列: " << waitingQueue.size() << std::endl;
-//    }
+//     void render() const override {
+//         std::cout << "楼梯: " << id << ", 人数: " << currentLoad << ", 拥堵: " << congestionFactor
+//             << ", 队列: " << waitingQueue.size() << std::endl;
+//     }
 
-//    std::map<std::string, std::string> toProperties() const override {
-//        auto props = AbstractNode::toProperties();
-//        props["stepCount"] = std::to_string(stepCount);
-//        props["direction"] = std::to_string(direction);
-//        return props;
-//    }
+//     std::map<std::string, std::string> toProperties() const override {
+//         auto props = AbstractNode::toProperties();
+//         props["stepCount"] = std::to_string(stepCount);
+//         // 更新：移除了 toProperties 中的 direction 映射
+//         return props;
+//     }
 // };
 
+// // ==========================================
+// // 更新：修改 NodeFactory 以适配新的 StairNode 构造
+// // ==========================================
 // class NodeFactory {
 // public:
-//    static std::unique_ptr<AbstractNode> createNode(const std::string& typeCode, const std::map<std::string, std::string>& props) {
-//        std::string id = props.at("id");
-//        int floor = safeStoi(props.at("floor"));
-//        POINT pos = { safeStoi(props.at("x")), safeStoi(props.at("y")) };
-//        int cap = safeStoi(props.at("capacity"));
-//        double vel = safeStod(props.at("baseVelocity"));
-//        double sens = safeStod(props.at("sensitivity"));
+//     static std::unique_ptr<AbstractNode> createNode(const std::string& typeCode, const std::map<std::string, std::string>& props) {
+//         std::string id = props.at("id");
+//         int floor = safeStoi(props.at("floor"));
+//         POINT pos = { safeStoi(props.at("x")), safeStoi(props.at("y")) };
+//         int cap = safeStoi(props.at("capacity"));
+//         double vel = safeStod(props.at("baseVelocity"));
+//         double sens = safeStod(props.at("sensitivity"));
 
-//        if (typeCode == "HALL") {
-//            return std::make_unique<HallNode>(id, floor, pos, cap, vel, sens);
-//        }
-//        if (typeCode == "SECURITY") {
-//            int scanners = safeStoi(props.at("scannerCount"));
-//            double t = safeStod(props.at("checkTimePerPerson"));
-//            bool hasBanned = (props.at("hasBannedItem") == "1");
-//            return std::make_unique<SecurityNode>(id, floor, pos, cap, vel, sens, scanners, t, hasBanned);
-//        }
-//        if (typeCode == "TICKET") {
-//            int win = safeStoi(props.at("windowCount"));
-//            double t = safeStod(props.at("buyTimePerPerson"));
-//            bool hasAuto = (props.at("hasAutoMachine") == "1");
-//            return std::make_unique<TicketNode>(id, floor, pos, cap, vel, sens, win, t, hasAuto);
-//        }
-//        if (typeCode == "GATE") {
-//            int g = safeStoi(props.at("gateCount"));
-//            bool bidir = (props.at("isBidirectional") == "1");
-//            return std::make_unique<GateNode>(id, floor, pos, cap, vel, sens, g, bidir);
-//        }
-//        if (typeCode == "EXIT") {
-//            int total = safeStoi(props.at("totalExits"));
-//            return std::make_unique<ExitNode>(id, floor, pos, cap, vel, sens, props.at("exitName"), props.at("connectedStreet"), props.at("isOneWay") == "1", total);
-//        }
-//        if (typeCode == "PLATFORM") {
-//            // [修改] 确保PlatformNode构造函数参数正确传递
-//            return std::make_unique<PlatformNode>(id, floor, pos, cap, vel, sens,
-//                props.at("lineName"), safeStoi(props.at("direction")),
-//                safeStoi(props.at("waitCap")),
-//                props.at("hasScreenDoor") == "1",
-//                safeStod(props.at("nextTrainIn")));
-//        }
-//        if (typeCode == "STAIR") {
-//            return std::make_unique<StairNode>(id, floor, pos, cap, vel, sens, safeStoi(props.at("stepCount")), safeStoi(props.at("direction")));
-//        }
-//        return nullptr;
-//    }
+//         if (typeCode == "HALL") {
+//             return std::make_unique<HallNode>(id, floor, pos, cap, vel, sens);
+//         }
+//         if (typeCode == "SECURITY") {
+//             int scanners = safeStoi(props.at("scannerCount"));
+//             double t = safeStod(props.at("checkTimePerPerson"));
+//             bool hasBanned = (props.at("hasBannedItem") == "1");
+//             return std::make_unique<SecurityNode>(id, floor, pos, cap, vel, sens, scanners, t, hasBanned);
+//         }
+//         if (typeCode == "TICKET") {
+//             int win = safeStoi(props.at("windowCount"));
+//             double t = safeStod(props.at("buyTimePerPerson"));
+//             bool hasAuto = (props.at("hasAutoMachine") == "1");
+//             return std::make_unique<TicketNode>(id, floor, pos, cap, vel, sens, win, t, hasAuto);
+//         }
+//         if (typeCode == "GATE") {
+//             int g = safeStoi(props.at("gateCount"));
+//             bool bidir = (props.at("isBidirectional") == "1");
+//             return std::make_unique<GateNode>(id, floor, pos, cap, vel, sens, g, bidir);
+//         }
+//         if (typeCode == "EXIT") {
+//             int total = safeStoi(props.at("totalExits"));
+//             return std::make_unique<ExitNode>(id, floor, pos, cap, vel, sens, props.at("exitName"), props.at("connectedStreet"), props.at("isOneWay") == "1", total);
+//         }
+//         if (typeCode == "PLATFORM") {
+//             return std::make_unique<PlatformNode>(id, floor, pos, cap, vel, sens,
+//                 props.at("lineName"), safeStoi(props.at("direction")),
+//                 safeStoi(props.at("waitCap")),
+//                 props.at("hasScreenDoor") == "1",
+//                 safeStod(props.at("nextTrainIn")));
+//         }
+//         // 更新：创建 STAIR 时不再传入 direction 属性
+//         if (typeCode == "STAIR") {
+//             return std::make_unique<StairNode>(id, floor, pos, cap, vel, sens, safeStoi(props.at("stepCount")));
+//         }
+//         return nullptr;
+//     }
 // };
 
 // // --- Subway Graph Class ---
@@ -1106,269 +1114,239 @@
 //        return e->canEnter() && (!next || next->canEnter());
 //    }
 
-//    // 在SubwayGraph类中优化loadFromCSV方法
-//    bool loadFromCSV(const std::string& filePath) {
-//        std::ifstream file(filePath);
-//        if (!file.is_open()) {
-//            std::cout << "无法打开文件: " << filePath << std::endl;
-//            return false;
-//        }
+//    // 更新：根据指定的 Edge、Node 及所有派生类属性，重新设计统一表头
+// bool saveToCSV(const std::string& filePath) const {
+//     std::ofstream file(filePath);
+//     if (!file.is_open()) {
+//         std::cout << "无法创建文件: " << filePath << std::endl;
+//         return false;
+//     }
 
-//        // 验证文件头
-//        std::string header;
-//        std::getline(file, header);
-//        if (header.find("recordType") == std::string::npos ||
-//            header.find("type") == std::string::npos ||
-//            header.find("id") == std::string::npos) {
-//            std::cout << "CSV文件格式错误: 缺少必要字段" << std::endl;
-//            return false;
-//        }
+//     // 写入CSV统长表头
+//     file << "recordType,type,id,toId,"
+//         << "floor,x,y,capacity,baseVelocity,congestionSensitivity,serviceRate,maxSimultaneousServices,"
+//         << "length,width,isEscalator,maxConcurrentOccupancy,"
+//         << "scannerCount,checkTimePerPerson,hasBannedItem,"
+//         << "windowCount,buyTimePerPerson,hasAutoMachine,"
+//         << "gateCount,isBidirectional,"
+//         << "exitName,connectedStreet,isOneWay,totalExits,"
+//         << "lineName,direction,waitCap,hasScreenDoor,nextTrainIn,"
+//         << "stepCount\n";
 
-//        std::string line;
-//        int lineNumber = 1;
-//        int successCount = 0;
-//        int errorCount = 0;
-//        std::vector<std::string> errors;
+//     // 批量写入节点 (Nodes)
+//     for (const auto& node : nodes_) {
+//         std::map<std::string, std::string> props = node->toProperties();
+//         std::string nodeType = props["type"];
 
-//        // 预分配容器以提高性能
-//        std::vector<std::map<std::string, std::string>> nodePropsList;
-//        std::vector<std::string> nodeTypeCodes;
-//        std::vector<std::string> edgeFromIds;
-//        std::vector<std::string> edgeToIds;
-//        std::vector<Edge> edgeList;
+//         // 写入基础属性（toId留空）
+//         file << "NODE," << nodeType << "," << props["id"] << "," << ","
+//             << props["floor"] << "," << props["x"] << "," << props["y"] << ","
+//             << props["capacity"] << "," << props["baseVelocity"] << ","
+//             << props["congestionSensitivity"] << ","
+//             // 这里导出通过 serviceInterval 转换的 serviceRate 和 capacity（如果工厂需要，可酌情处理）
+//             << (1.0 / std::max(0.01, safeStod(props["checkTimePerPerson"], 1.0))) << ","
+//             << "1" << ","; // maxSimultaneousServices
 
-//        while (std::getline(file, line)) {
-//            lineNumber++;
-//            if (!line.empty() && line.back() == '\r') line.pop_back();
-//            if (line.empty()) continue;
+//         // Edge专属留空
+//         file << ",,,,";
 
-//            try {
-//                // 解析CSV行
-//                std::istringstream ss(line);
-//                std::vector<std::string> values;
-//                std::string value;
+//         // 特定衍生类属性补齐
+//         if (nodeType == "SECURITY") {
+//             file << props["scannerCount"] << "," << props["checkTimePerPerson"] << "," << props["hasBannedItem"] << ",";
+//             file << ",,,"; // ticket
+//             file << ",,";  // gate
+//             file << ",,,,"; // exit
+//             file << ",,,,,"; // platform
+//             file << "\n";   // stair
+//         }
+//         else if (nodeType == "TICKET") {
+//             file << ",,,"; // sec
+//             file << props["windowCount"] << "," << props["buyTimePerPerson"] << "," << props["hasAutoMachine"] << ",";
+//             file << ",,";  // gate
+//             file << ",,,,"; // exit
+//             file << ",,,,,"; // platform
+//             file << "\n";   // stair
+//         }
+//         else if (nodeType == "GATE") {
+//             file << ",,,"; // sec
+//             file << ",,,"; // ticket
+//             file << props["gateCount"] << "," << props["isBidirectional"] << ",";
+//             file << ",,,,"; // exit
+//             file << ",,,,,"; // platform
+//             file << "\n";   // stair
+//         }
+//         else if (nodeType == "EXIT") {
+//             file << ",,,"; // sec
+//             file << ",,,"; // ticket
+//             file << ",,";  // gate
+//             file << props["exitName"] << "," << props["connectedStreet"] << "," << props["isOneWay"] << "," << props["totalExits"] << ",";
+//             file << ",,,,,"; // platform
+//             file << "\n";   // stair
+//         }
+//         else if (nodeType == "PLATFORM") {
+//             file << ",,,"; // sec
+//             file << ",,,"; // ticket
+//             file << ",,";  // gate
+//             file << ",,,,"; // exit
+//             file << props["lineName"] << "," << props["direction"] << "," << props["waitCap"] << "," << props["hasScreenDoor"] << "," << props["nextTrainIn"] << ",";
+//             file << "\n";   // stair
+//         }
+//         else if (nodeType == "STAIR") {
+//             file << ",,,"; // sec
+//             file << ",,,"; // ticket
+//             file << ",,";  // gate
+//             file << ",,,,"; // exit
+//             file << ",,,,,"; // platform
+//             file << props["stepCount"] << "\n";
+//         }
+//         else {
+//             file << ",,,,,,," << ",,,,,,," << ",,\n"; // 其余填空补齐
+//         }
+//     }
 
-//                // 使用引号感知的CSV解析
-//                bool inQuotes = false;
-//                std::string field;
-//                for (size_t i = 0; i < line.length(); ++i) {
-//                    char c = line[i];
-//                    if (c == '"') {
-//                        inQuotes = !inQuotes;
-//                    }
-//                    else if (c == ',' && !inQuotes) {
-//                        values.push_back(field);
-//                        field.clear();
-//                    }
-//                    else {
-//                        field += c;
-//                    }
-//                }
-//                values.push_back(field);
+//     // 批量写入边 (Edges)
+//     for (size_t u = 0; u < adjList_.size(); ++u) {
+//         for (const auto& edge : adjList_[u]) {
+//             int v = edge.getToIndex();
+//             if (v < 0 || v >= static_cast<int>(nodes_.size())) continue;
 
-//                if (values.size() < 2) {
-//                    errors.push_back("第 " + std::to_string(lineNumber) + " 行: 字段数量不足");
-//                    errorCount++;
-//                    continue;
-//                }
+//             // EDGE，toId=v对应的id
+//             file << "EDGE,EDGE," << indexToId_[u] << "," << indexToId_[v] << ",";
+//             // Node属性留空
+//             file << ",,,,,,,,";
 
-//                std::string recordType = values[0];
+//             // Edge属性填入
+//             file << edge.getLength() << ","
+//                 << edge.getWidth() << ","
+//                 << (edge.getIsEscalator() ? "1" : "0") << ","
+//                 << edge.getCapacity() << ",";
 
-//                if (recordType == "NODE" && values.size() >= 7) {
-//                    std::map<std::string, std::string> props;
-//                    props["type"] = values[1];
-//                    props["id"] = values[2];
-//                    props["floor"] = values[3];
-//                    props["x"] = values[4];
-//                    props["y"] = values[5];
-//                    props["capacity"] = values[6];
-//                    props["baseVelocity"] = (values.size() > 7 && !values[7].empty()) ? values[7] : "1.0";
-//                    props["sensitivity"] = (values.size() > 8 && !values[8].empty()) ? values[8] : "1.0";
+//             // 后续节点细分留空
+//             file << ",,,,,,,,,,,,,,,,,\n";
+//         }
+//     }
 
-//                    std::string typeCode = props["type"];
-//                    size_t idx = 9;
+//     return true;
+// }
 
-//                    // 根据节点类型处理额外属性
-//                    if (typeCode == "SECURITY" && values.size() > idx + 2) {
-//                        props["scannerCount"] = values[idx++];
-//                        props["checkTimePerPerson"] = values[idx++];
-//                        props["hasBannedItem"] = values[idx++];
-//                    }
-//                    else if (typeCode == "TICKET" && values.size() > idx + 2) {
-//                        props["windowCount"] = values[idx++];
-//                        props["buyTimePerPerson"] = values[idx++];
-//                        props["hasAutoMachine"] = values[idx++];
-//                    }
-//                    else if (typeCode == "GATE" && values.size() > idx + 1) {
-//                        props["gateCount"] = values[idx++];
-//                        props["isBidirectional"] = values[idx++];
-//                    }
-//                    else if (typeCode == "EXIT" && values.size() > idx + 3) {
-//                        props["exitName"] = values[idx++];
-//                        props["connectedStreet"] = values[idx++];
-//                        props["isOneWay"] = values[idx++];
-//                        props["totalExits"] = values[idx++];
-//                    }
-//                    else if (typeCode == "PLATFORM" && values.size() > idx + 4) {
-//                        props["lineName"] = values[idx++];
-//                        props["direction"] = values[idx++];
-//                        props["waitCap"] = values[idx++];
-//                        props["hasScreenDoor"] = values[idx++];
-//                        props["nextTrainIn"] = values[idx++];
-//                    }
-//                    else if (typeCode == "STAIR" && values.size() > idx + 1) {
-//                        props["stepCount"] = values[idx++];
-//                        props["direction"] = values[idx++];
-//                    }
+// // 更新：优化表格字段映射读取逻辑
+// bool loadFromCSV(const std::string& filePath) {
+//     std::ifstream file(filePath);
+//     if (!file.is_open()) {
+//         std::cout << "无法打开文件: " << filePath << std::endl;
+//         return false;
+//     }
 
-//                    nodePropsList.push_back(props);
-//                    nodeTypeCodes.push_back(typeCode);
-//                }
-//                else if (recordType == "EDGE" && values.size() >= 6) {
-//                    Edge e;
-//                    e.setLength(safeStod(values[3], 10.0));
-//                    e.setWidth(safeStod(values[4], 2.0));
+//     std::string header;
+//     std::getline(file, header);
 
-//                    if (values.size() > 6) e.setBaseVelocity(safeStod(values[6], 1.0));
-//                    if (values.size() > 7) e.setIsEscalator(safeStoi(values[7], 0) == 1);
+//     std::string line;
+//     int lineNumber = 1;
+//     int successCount = 0;
+//     int errorCount = 0;
 
-//                    edgeFromIds.push_back(values[1]);
-//                    edgeToIds.push_back(values[2]);
-//                    edgeList.push_back(e);
-//                }
-//                else {
-//                    errors.push_back("第 " + std::to_string(lineNumber) + " 行: 记录类型或字段数量错误");
-//                    errorCount++;
-//                    continue;
-//                }
+//     std::vector<std::map<std::string, std::string>> nodePropsList;
+//     std::vector<std::string> nodeTypeCodes;
+//     std::vector<std::string> edgeFromIds;
+//     std::vector<std::string> edgeToIds;
+//     std::vector<Edge> edgeList;
 
-//                successCount++;
-//            }
-//            catch (const std::exception& e) {
-//                errorCount++;
-//                errors.push_back("第 " + std::to_string(lineNumber) + " 行异常: " + e.what());
-//            }
+//     while (std::getline(file, line)) {
+//         lineNumber++;
+//         if (!line.empty() && line.back() == '\r') line.pop_back();
+//         if (line.empty()) continue;
 
-//            // 如果错误率过高，提前终止
-//            if (errorCount > 0 && successCount > 0 && static_cast<double>(errorCount) / (successCount + errorCount) > 0.5) {
-//                std::cout << "错误率过高，停止加载" << std::endl;
-//                break;
-//            }
-//        }
+//         try {
+//             std::vector<std::string> values;
+//             std::string field;
+//             bool inQuotes = false;
+//             for (char c : line) {
+//                 if (c == '"') { inQuotes = !inQuotes; }
+//                 else if (c == ',' && !inQuotes) { values.push_back(field); field.clear(); }
+//                 else { field += c; }
+//             }
+//             values.push_back(field);
 
-//        // 批量添加节点
-//        for (size_t i = 0; i < nodePropsList.size(); ++i) {
-//            auto& props = nodePropsList[i];
-//            auto& typeCode = nodeTypeCodes[i];
-//            auto node = NodeFactory::createNode(typeCode, props);
-//            if (node) {
-//                addNode(std::move(node));
-//            }
-//            else {
-//                errorCount++;
-//                errors.push_back("节点创建失败: ID=" + props["id"]);
-//            }
-//        }
+//             std::string recordType = values.size() > 0 ? values[0] : "";
+//             if (recordType == "NODE" && values.size() >= 12) {
+//                 std::map<std::string, std::string> props;
+//                 props["type"] = values[1];
+//                 props["id"] = values[2];
+//                 props["floor"] = values[4];
+//                 props["x"] = values[5];
+//                 props["y"] = values[6];
+//                 props["capacity"] = values[7];
+//                 props["baseVelocity"] = values[8];
+//                 props["sensitivity"] = values[9];
 
-//        // 批量添加边
-//        for (size_t i = 0; i < edgeFromIds.size(); ++i) {
-//            auto& fromId = edgeFromIds[i];
-//            auto& toId = edgeToIds[i];
-//            auto& edge = edgeList[i];
-//            if (!addEdge(fromId, toId, edge)) {
-//                errorCount++;
-//                errors.push_back("边添加失败: " + fromId + " -> " + toId);
-//            }
-//        }
+//                 std::string typeCode = props["type"];
 
-//        // 输出统计信息
-//        std::cout << "CSV加载完成 - 成功: " << successCount << ", 失败: " << errorCount << std::endl;
-//        if (!errors.empty()) {
-//            std::cout << "错误详情:" << std::endl;
-//            for (const auto& error : errors) {
-//                std::cout << "  " << error << std::endl;
-//            }
-//        }
+//                 if (typeCode == "SECURITY" && values.size() > 18) {
+//                     props["scannerCount"] = values[16];
+//                     props["checkTimePerPerson"] = values[17];
+//                     props["hasBannedItem"] = values[18];
+//                 }
+//                 else if (typeCode == "TICKET" && values.size() > 21) {
+//                     props["windowCount"] = values[19];
+//                     props["buyTimePerPerson"] = values[20];
+//                     props["hasAutoMachine"] = values[21];
+//                 }
+//                 else if (typeCode == "GATE" && values.size() > 23) {
+//                     props["gateCount"] = values[22];
+//                     props["isBidirectional"] = values[23];
+//                 }
+//                 else if (typeCode == "EXIT" && values.size() > 27) {
+//                     props["exitName"] = values[24];
+//                     props["connectedStreet"] = values[25];
+//                     props["isOneWay"] = values[26];
+//                     props["totalExits"] = values[27];
+//                 }
+//                 else if (typeCode == "PLATFORM" && values.size() > 32) {
+//                     props["lineName"] = values[28];
+//                     props["direction"] = values[29];
+//                     props["waitCap"] = values[30];
+//                     props["hasScreenDoor"] = values[31];
+//                     props["nextTrainIn"] = values[32];
+//                 }
+//                 else if (typeCode == "STAIR" && values.size() > 33) {
+//                     props["stepCount"] = values[33];
+//                 }
 
-//        return errorCount == 0 && successCount > 0;
-//    }
+//                 nodePropsList.push_back(props);
+//                 nodeTypeCodes.push_back(typeCode);
+//             }
+//             else if (recordType == "EDGE" && values.size() >= 15) {
+//                 Edge e;
+//                 e.setLength(safeStod(values[12], 10.0));
+//                 e.setWidth(safeStod(values[13], 2.0));
+//                 e.setIsEscalator(safeStoi(values[14], 0) == 1);
 
-//    // 在SubwayGraph类中优化saveToCSV方法
-//    bool saveToCSV(const std::string& filePath) const {
-//        std::ofstream file(filePath);
-//        if (!file.is_open()) {
-//            std::cout << "无法创建文件: " << filePath << std::endl;
-//            return false;
-//        }
+//                 edgeFromIds.push_back(values[2]);
+//                 edgeToIds.push_back(values[3]); // fromId, toId使用新排版的位置
+//                 edgeList.push_back(e);
+//             }
 
-//        // 写入CSV头部
-//        file << "recordType,type,id,floor,x,y,capacity,baseVelocity,sensitivity,"
-//            << "length,width,scannerCount,checkTimePerPerson,hasBannedItem,"
-//            << "windowCount,buyTimePerPerson,hasAutoMachine,gateCount,isBidirectional,"
-//            << "exitName,connectedStreet,isOneWay,totalExits,lineName,direction,"
-//            << "waitCap,hasScreenDoor,nextTrainIn,stepCount,isEscalator\n";
+//             successCount++;
+//         }
+//         catch (...) {
+//             errorCount++;
+//         }
+//     }
 
-//        // 批量写入节点
-//        for (const auto& node : nodes_) {
-//            std::map<std::string, std::string> props = node->toProperties();
+//     // 批量添加节点
+//     for (size_t i = 0; i < nodePropsList.size(); ++i) {
+//         auto node = NodeFactory::createNode(nodeTypeCodes[i], nodePropsList[i]);
+//         if (node) addNode(std::move(node));
+//     }
 
-//            // 写入节点基本信息
-//            file << "NODE," << props["type"] << "," << props["id"] << ","
-//                << props["floor"] << "," << props["x"] << "," << props["y"] << ","
-//                << props["capacity"] << "," << props["baseVelocity"] << "," << props["sensitivity"];
+//     // 批量添加边
+//     for (size_t i = 0; i < edgeFromIds.size(); ++i) {
+//         addEdge(edgeFromIds[i], edgeToIds[i], edgeList[i]);
+//     }
 
-//            // 根据节点类型写入特有属性
-//            std::string nodeType = props["type"];
-//            if (nodeType == "SECURITY") {
-//                file << ",,,,,"
-//                    << props["scannerCount"] << "," << props["checkTimePerPerson"] << "," << props["hasBannedItem"]
-//                    << ",,,,,,,,,,,,,,,,\n";
-//            }
-//            else if (nodeType == "TICKET") {
-//                file << ",,,,,,,,"
-//                    << props["windowCount"] << "," << props["buyTimePerPerson"] << "," << props["hasAutoMachine"]
-//                    << ",,,,,,,,,,,,,\n";
-//            }
-//            else if (nodeType == "GATE") {
-//                file << ",,,,,,,,,,"
-//                    << props["gateCount"] << "," << props["isBidirectional"]
-//                    << ",,,,,,,,,,,\n";
-//            }
-//            else if (nodeType == "EXIT") {
-//                file << ",,,,,,,,,,,,"
-//                    << props["exitName"] << "," << props["connectedStreet"] << "," << props["isOneWay"] << "," << props["totalExits"]
-//                    << ",,,,,,,\n";
-//            }
-//            else if (nodeType == "PLATFORM") {
-//                file << ",,,,,,,,,,,,,,,,"
-//                    << props["lineName"] << "," << props["direction"] << "," << props["waitCap"] << "," << props["hasScreenDoor"] << "," << props["nextTrainIn"]
-//                    << ",,\n";
-//            }
-//            else if (nodeType == "STAIR") {
-//                file << ",,,,,,,,,,,,,,,,"
-//                    << props["stepCount"] << "," << props["direction"]
-//                    << ",,\n";
-//            }
-//            else {
-//                file << ",,,,,,,,,,,,,,,,,,,,,,\n";
-//            }
-//        }
-
-//        // 批量写入边
-//        for (size_t u = 0; u < adjList_.size(); ++u) {
-//            for (const auto& edge : adjList_[u]) {
-//                int v = edge.getToIndex();
-//                if (v < 0 || v >= static_cast<int>(nodes_.size())) continue;
-
-//                file << "EDGE," << indexToId_[u] << "," << indexToId_[v] << ","
-//                    << edge.getLength() << "," << edge.getWidth() << ","
-//                    << edge.getBaseVelocity() << ","
-//                    << (edge.getIsEscalator() ? "1" : "0") << "\n";
-//            }
-//        }
-
-//        return true;
-//    }
+//     std::cout << "CSV加载完成 - 成功记录数: " << successCount << " / 错误忽略: " << errorCount << std::endl;
+//     return true;
+// }
 
 //    void visualize() const {
 //        std::cout << "\n=== 地铁站拓扑结构 ===" << std::endl;
