@@ -56,8 +56,13 @@ bool AbstractNode::moveCell(int from_x, int from_y, int to_x, int to_y, int pass
     return true;
 }
 
+// 排队相关方法
 bool AbstractNode::canJoinQueue() const {
-    return waitingQueue.size() < static_cast<size_t>(capacity * 0.8) && getCongestionFactor() < 0.9;
+    // 只用队列长度限制，绝对不能用拥堵因子锁死入口
+    // 否则任何 >= 0.9 的拥堵都会导致队列永久关闭，形成死循环
+    int maxQueueSize = static_cast<int>(capacity * 0.8);
+    if (maxQueueSize < 1) maxQueueSize = 1;
+    return waitingQueue.size() < maxQueueSize;
 }
 
 bool AbstractNode::joinQueue(int passengerId) {
@@ -66,7 +71,7 @@ bool AbstractNode::joinQueue(int passengerId) {
 }
 
 int AbstractNode::serveNextPassenger() {
-    if (!waitingQueue.empty() && servingPassengers.size() < static_cast<size_t>(maxSimultaneousServices)) {
+    if (!waitingQueue.empty() && servingPassengers.size() < maxSimultaneousServices) {
         int passengerId = waitingQueue.front();
         waitingQueue.pop();
         servingPassengers.insert(passengerId);
@@ -92,7 +97,7 @@ void AbstractNode::updateCongestionFactor() {
 bool AbstractNode::canExit(const AbstractNode* nextNode, const Edge* connectingEdge) const {
     if (nextNode && !nextNode->canEnter()) return false;
     if (connectingEdge && !connectingEdge->canEnter()) return false;
-    return servingPassengers.size() < static_cast<size_t>(maxSimultaneousServices * 0.9);
+    return servingPassengers.size() < maxSimultaneousServices * 0.9;
 }
 
 double AbstractNode::getPassThroughTime() const {
@@ -102,7 +107,7 @@ double AbstractNode::getPassThroughTime() const {
 }
 
 void AbstractNode::assignServingPassengers() {
-    while (waitingQueue.size() > 0 && servingPassengers.size() < static_cast<size_t>(maxSimultaneousServices)) {
+    while (waitingQueue.size() > 0 && servingPassengers.size() < maxSimultaneousServices) {
         int pid = serveNextPassenger();
         if (pid == -1) break;
     }

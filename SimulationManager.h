@@ -18,6 +18,10 @@ public:
         double avg_congestion = 0.0;  // 平均拥堵度
         int total_queue_time = 0;  // 总排队时间
         int total_queued = 0;      // 总排队次数
+        // F4采样字段
+        double cumulative_congestion_sum = 0.0;
+        long long cumulative_queue_length = 0;
+        int sample_count = 0;
     };
 
     std::unordered_map<std::string, NodeStats> node_statistics; // 各节点统计
@@ -28,6 +32,8 @@ public:
     void record_queue_time(const std::string& node_id, int queue_time); // 记录排队时间
     void record_passenger_time(double time); // 记录乘客通行时间
     void print_analysis() const; // 打印统计分析
+    void record_tick_for_f4(const SubwayGraph& graph); // F4每秒采样
+    void exportF4Data(const std::string& nodeFile, const std::string& passengerFile, const SubwayGraph& graph) const; // F4数据导出
 };
 
 // 仿真管理器

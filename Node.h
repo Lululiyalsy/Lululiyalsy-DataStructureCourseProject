@@ -70,7 +70,7 @@ public:
     int serveNextPassenger();
     void completeService(int passengerId) { servingPassengers.erase(passengerId); }
     bool isBeingServed(int passengerId) const { return servingPassengers.count(passengerId) > 0; }
-    int getQueueLength() const { return static_cast<int>(waitingQueue.size()); }
+    int getQueueLength() const { return waitingQueue.size(); }
 
     virtual void onPassengerArrive();
     virtual void onPassengerLeave();

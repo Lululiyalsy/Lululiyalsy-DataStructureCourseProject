@@ -12,7 +12,7 @@ Passenger::Passenger(int curr_id, int curr_node, int target_node, PassengerAttri
     action_timer(0.0), state(from_train ? PassengerState::FROM_TRAIN : PassengerState::SPAWNED),
     exit_time(0.0), queue_start_time(0), queue_position(-1),
     current_path_index(0), current_grid_x(-1), current_grid_y(-1),
-    current_edge_from(-1), current_edge_to(-1), transit_timer(0.0),
+    current_edge_from(-1), current_edge_to(-1), transit_timer(0.0), waitTimer(0.0),
     collision_timer(0), isFromTrain(from_train), headingToPlatform(false), lastReplanTime(time), replanInterval(90.0),
     lastCongestionReplanTime(time), graphRef(graph) {}
 
@@ -68,14 +68,32 @@ std::vector<std::pair<int, int>> Passenger::findLocalPath(const AbstractNode* no
     }
     return {};
 }
-// 查找最近出口出口ID（优化后直接找一个出口代替最近的，提升性能）
+// [修复] 基于有向图寻路，寻找真正可达的最近出口
 std::string Passenger::findNearestExit(const SubwayGraph& graph) const {
+    std::string nearestExitId;
+    double minDist = 1e18;
+    
     for (const auto& node : graph.getAllNodes()) {
         if (node->getTypeCode() == "EXIT") {
-            return node->getId();
+            std::string exitId = node->getId();
+            // 调用最短距离策略验证是否可达，并获取路径
+            std::vector<int> path = graph.findPath(graph.getId(current_node_id), exitId, PathStrategy::SHORTEST_DISTANCE);
+            
+            if (!path.empty()) {
+                // 累加路径上所有边的物理长度
+                double dist = 0.0;
+                for (size_t i = 0; i < path.size() - 1; ++i) {
+                    const Edge* e = graph.getEdge(path[i], path[i+1]);
+                    if (e) dist += e->getLength();
+                }
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearestExitId = exitId;
+                }
+            }
         }
     }
-    return "";
+    return nearestExitId;
 }
 
 AbstractNode* Passenger::getNode(int index) const {
@@ -151,14 +169,14 @@ bool Passenger::update(double dt, int current_node_load, int current_node_capaci
                 if (attributes.patience < 0.3) {
                     if (current_grid_x >= 0 && current_grid_y >= 0) current_node->releaseCell(current_grid_x, current_grid_y);
                     advancePath();
-                    if (current_path_index >= static_cast<int>(path.size())) { state = PassengerState::LEFT; exit_time = spawn_time + action_timer; }
+                    if (current_path_index >= path.size()) { state = PassengerState::LEFT; exit_time = spawn_time + action_timer; }
                     else target_node_id = path[current_path_index];
                     return true;
                 }
                 state = PassengerState::IN_QUEUE; action_timer = 0.0; return true;
             } else { state = PassengerState::IN_QUEUE; action_timer = 0.0; return true; }
         } else {
-            if (current_path_index < static_cast<int>(path.size()) - 1) {
+            if (!path.empty() && current_path_index < path.size() - 1) {
                 int next_node_id = path[current_path_index + 1];
                 const Edge* nextEdge = graph.getEdge(current_node_id, next_node_id);
                 if (!nextEdge) { state = PassengerState::REPATHING; return true; }
@@ -210,18 +228,46 @@ bool Passenger::update(double dt, int current_node_load, int current_node_capaci
                 }
                 current_edge_from = -1; current_edge_to = -1; transit_timer = 0.0;
                 state = PassengerState::PATH_FOLLOWING;
-            } else { state = PassengerState::WAITING_EDGE; }
+            } else {
+                // 超时回退机制
+                if (transit_timer > edge->getPassThroughTime() + 30.0) {
+                    Edge* mutableEdge = graph.getEdgeMutable(current_edge_from, current_edge_to);
+                    if (mutableEdge) mutableEdge->removeOccupant();
+                    current_node_id = current_edge_from;
+                    current_edge_from = -1;
+                    current_edge_to = -1;
+                    transit_timer = 0.0;
+                    AbstractNode* fromNode = getNode(current_node_id);
+                    if (fromNode) fromNode->occupyCell(1, 1, id);
+                    current_grid_x = 1; current_grid_y = 1;
+                    state = PassengerState::PATH_FOLLOWING;
+                }
+            }
         }
         return true;
     }
 
     if (state == PassengerState::WAITING_EDGE) {
+        waitTimer += dt;
+        bool canProceed = false;
         if (current_path_index < static_cast<int>(path.size()) - 1) {
             int next_node_id = path[current_path_index + 1];
             const Edge* nextEdge = graph.getEdge(current_node_id, next_node_id);
             AbstractNode* nextNode = getNode(next_node_id);
-            if (nextEdge && nextEdge->tryEnterEdge() && (!nextNode || nextNode->canEnter())) state = PassengerState::PATH_FOLLOWING;
-        } else { state = PassengerState::PATH_FOLLOWING; }
+            if (nextEdge && nextEdge->tryEnterEdge() && (!nextNode || nextNode->canEnter())) canProceed = true;
+        } else { canProceed = true; }
+        if (canProceed) {
+            state = PassengerState::PATH_FOLLOWING;
+            waitTimer = 0.0;
+        } else if (waitTimer > 60.0) {
+            if (needsReplanning(current_node, graph)) {
+                std::string currentId = graph.getId(current_node_id);
+                std::string targetId = graph.getId(target_node_id);
+                replanPath(currentId, targetId, graph);
+            }
+            state = PassengerState::PATH_FOLLOWING;
+            waitTimer = 0.0;
+        }
         return true;
     }
 
@@ -291,22 +337,20 @@ bool Passenger::update(double dt, int current_node_load, int current_node_capaci
     if (state == PassengerState::PATH_FOLLOWING && !path.empty()) {
 
         // 1. 服务节点必须先排队（注意：EXIT不需要排队，走到出口直接离场）
-        if (current_node && (current_node->getTypeCode() == "SECURITY" ||
-            current_node->getTypeCode() == "TICKET" ||
-            current_node->getTypeCode() == "GATE")) {
-            if (!current_node->joinQueue(id)) {
+        if (current_node && (current_node->getTypeCode() == "SECURITY" || current_node->getTypeCode() == "TICKET" || current_node->getTypeCode() == "GATE")) {
+            if (current_node->joinQueue(id)) {
+                state = PassengerState::IN_QUEUE;
+                action_timer = 0.0;
+            } else {
                 if (attributes.patience < 0.3) {
-                    if (current_grid_x >= 0 && current_grid_y >= 0)
-                        current_node->releaseCell(current_grid_x, current_grid_y);
+                    if (current_grid_x >= 0 && current_grid_y >= 0) current_node->releaseCell(current_grid_x, current_grid_y);
                     advancePath();
                     if (current_path_index >= static_cast<int>(path.size())) {
-                        state = PassengerState::LEFT; exit_time = spawn_time + action_timer; return false;
-                    } else { target_node_id = path[current_path_index]; }
-                    return true;
+                        state = PassengerState::LEFT;
+                        exit_time = spawn_time + action_timer;
+                        return false;
+                    }
                 }
-                state = PassengerState::IN_QUEUE; action_timer = 0.0;
-            } else {
-                state = PassengerState::IN_QUEUE; action_timer = 0.0;
             }
             return true;
         }
@@ -402,8 +446,8 @@ bool Passenger::needsReplanning(AbstractNode* currentNode, const SubwayGraph& gr
     double now = spawn_time + action_timer;
     bool congestionTriggered = false;
     if (currentNode && currentNode->getCongestionFactor() > 0.8) congestionTriggered = true;
-    if (!congestionTriggered && current_path_index < static_cast<int>(path.size()) - 1) {
-        for (int i = current_path_index + 1; i < static_cast<int>(path.size()) && i < current_path_index + 3; i++) {
+    if (!congestionTriggered && current_path_index < path.size() - 1) {
+        for (int i = current_path_index + 1; i < path.size() && i < current_path_index + 3; i++) {
             AbstractNode* futureNode = graph.getNode(path[i]);
             if (futureNode && futureNode->getCongestionFactor() > 0.85) { congestionTriggered = true; break; }
             if (i > 0) {
@@ -432,7 +476,7 @@ void Passenger::replanPath(const std::string& currentId, const std::string& targ
 }
 
 bool Passenger::isPathCongested(const SubwayGraph& graph) const {
-    for (int i = current_path_index; i < static_cast<int>(path.size()) - 1; i++) {
+    for (int i = current_path_index; i < path.size() - 1; i++) {
         AbstractNode* node = graph.getNode(path[i]);
         if (node && node->getCongestionFactor() > 0.7) return true;
         if (i > 0) {

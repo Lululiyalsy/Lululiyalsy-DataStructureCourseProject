@@ -8,6 +8,7 @@
 #include <sstream>
 #include <algorithm>
 #include <cmath>
+#include <functional>
 
 SubwayGraph::SubwayGraph() = default;
 
@@ -60,7 +61,10 @@ std::vector<int> SubwayGraph::shortestDistancePath(int startIdx, int endIdx) con
         for (const auto& edge : adjList_[u]) {
             int v = edge.getToIndex();
             if (v < 0 || v >= static_cast<int>(nodes_.size())) continue;
-            double weight = edge.getLength();
+            // 加入基于节点ID的微小扰动，打破羊群效应
+            size_t hash_seed = std::hash<std::string>{}(indexToId_[u]) ^ (std::hash<std::string>{}(indexToId_[v]) << 1);
+            double jitter = (static_cast<double>(hash_seed % 100) / 100.0) * 0.2;
+            double weight = edge.getLength() + jitter;
             if (pathDist_[u] + weight < pathDist_[v]) {
                 pathDist_[v] = pathDist_[u] + weight;
                 pathPrev_[v] = u;

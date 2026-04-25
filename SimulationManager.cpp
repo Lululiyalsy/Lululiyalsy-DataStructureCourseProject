@@ -5,6 +5,7 @@
 #include <iostream>
 #include <algorithm>
 #include <iomanip>
+#include <fstream>
 
 void SimulationStatistics::record_node_usage(const std::string& node_id, int load, double congestion, double wait_time) {
     auto& stats = node_statistics[node_id];
@@ -87,6 +88,47 @@ void SimulationStatistics::print_analysis() const {
     std::cout << "================================" << std::endl;
 }
 
+void SimulationStatistics::record_tick_for_f4(const SubwayGraph& graph) {
+    for (const auto& nodePtr : graph.getAllNodes()) {
+        if (!nodePtr) continue;
+        std::string id = nodePtr->getId();
+        auto& stats = node_statistics[id];
+        stats.cumulative_congestion_sum += nodePtr->getCongestionFactor();
+        stats.cumulative_queue_length += nodePtr->getQueueLength();
+        stats.sample_count++;
+    }
+}
+
+void SimulationStatistics::exportF4Data(const std::string& nodeFile, const std::string& passengerFile, const SubwayGraph& graph) const {
+    std::ofstream nFile(nodeFile);
+    if (nFile.is_open()) {
+        nFile << "node_id,type,floor,x,y,avg_density,avg_queue,total_visits\n";
+        for (const auto& pair : node_statistics) {
+            const std::string& id = pair.first;
+            const NodeStats& stats = pair.second;
+            AbstractNode* node = graph.getNode(id);
+            if (!node || stats.sample_count == 0) continue;
+            nFile << id << ","
+                << node->getTypeCode() << ","
+                << node->getFloor() << ","
+                << node->getPos().x << ","
+                << node->getPos().y << ","
+                << (stats.cumulative_congestion_sum / stats.sample_count) << ","
+                << (static_cast<double>(stats.cumulative_queue_length) / stats.sample_count) << ","
+                << stats.total_visits << "\n";
+        }
+        nFile.close();
+    }
+    std::ofstream pFile(passengerFile);
+    if (pFile.is_open()) {
+        pFile << "passenger_id,travel_time\n";
+        for (size_t i = 0; i < passenger_times.size(); ++i) {
+            pFile << i << "," << passenger_times[i] << "\n";
+        }
+        pFile.close();
+    }
+}
+
 SimulationManager::SimulationManager(SubwayGraph& g, int maxOnline)
     : clock(0, 5), generator(clock, g, maxOnline), sim_time(0.0), dt(1.0), graph(g) {}
 
@@ -136,7 +178,8 @@ void SimulationManager::run(int steps) {
                 idx++;
             }
         }
-
+        // F4采样
+        statistics.record_tick_for_f4(graph);
         if (i % 10 == 0) {
             for (const auto& node : graph.getAllNodes()) {
                 statistics.record_node_usage(
@@ -187,4 +230,6 @@ void SimulationManager::run(int steps) {
     }
     generator.print_stats();
     statistics.print_analysis();
+    // F4数据导出
+    statistics.exportF4Data("f4_nodes.csv", "f4_passengers.csv", graph);
 }
