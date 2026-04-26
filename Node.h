@@ -185,7 +185,7 @@ public:
         const std::string& line, int dir, int waitCap, bool screenDoor, double trainIn)
         : AbstractNode(id, floor, pos, cap, vel, sens, 0.5, 1),
         lineName(line), direction(dir), waitCap(waitCap), hasScreenDoor(screenDoor),
-        nextTrainIn(trainIn), isTrainArriving(false), doorOpenTimer(0.0) {}
+        nextTrainIn(trainIn), isTrainArriving(false), doorOpenTimer(0.0), justArrivedEvent(false) {}
 
     void update(double deltaTime) override;
     std::string getTypeName() const override { return "\u7ad9\u53f0"; }

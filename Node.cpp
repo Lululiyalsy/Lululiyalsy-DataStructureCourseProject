@@ -213,6 +213,7 @@ void PlatformNode::update(double deltaTime) {
 }
 
 void PlatformNode::handleTrainArrival(double deltaTime) {
+    justArrivedEvent = false; // 每帧默认重置为 false，确保只触发一次
     if (doorOpenTimer > 0) {
         doorOpenTimer -= deltaTime;
         isTrainArriving = true;
@@ -222,6 +223,7 @@ void PlatformNode::handleTrainArrival(double deltaTime) {
             isTrainArriving = true;
             doorOpenTimer = DOOR_OPEN_DURATION;
             nextTrainIn = 120.0;
+            justArrivedEvent = true; // 仅在到站这一瞬间，置为 true
         } else {
             isTrainArriving = false;
         }
