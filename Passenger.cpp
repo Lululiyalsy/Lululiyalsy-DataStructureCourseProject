@@ -103,161 +103,413 @@ AbstractNode* Passenger::getNode(int index) const {
 }
 
 bool Passenger::update(double dt, int current_node_load, int current_node_capacity,
-    double node_service_time, AbstractNode* current_node,
-    const SubwayGraph& graph, int& replansThisFrame, int maxReplansPerFrame) {
+       double node_service_time, AbstractNode* current_node,
+       const SubwayGraph& graph, int& replansThisFrame, int maxReplansPerFrame) {
 
-    if (state == PassengerState::SPAWNED) {
-        action_timer += dt;
-        AbstractNode* start_node = current_node;
-        if (start_node) {
-            bool assigned = false;
-            if (start_node->occupyCell(1, 1, id)) {
-                current_grid_x = 1; current_grid_y = 1; assigned = true;
-            }
-            if (!assigned) {
-                for (int x = 1; x < start_node->getGridWidth() - 1 && !assigned; ++x) {
-                    for (int y = 1; y < start_node->getGridHeight() - 1; ++y) {
-                        if (start_node->occupyCell(x, y, id)) {
-                            current_grid_x = x; current_grid_y = y; assigned = true; break;
-                        }
-                    }
-                }
-            }
-            if (assigned) {
-                state = PassengerState::PATH_FOLLOWING;
-            }
-            else if (action_timer > 10.0) {
-                state = PassengerState::LEFT;
-                exit_time = spawn_time + real_travel_timer;
-                return false;
-            }
-        }
-        return true;
-    }
+       if (state == PassengerState::SPAWNED) {
+           action_timer += dt;
+           AbstractNode* start_node = current_node;
+           if (start_node) {
+               bool assigned = false;
+               if (start_node->occupyCell(1, 1, id)) {
+                   current_grid_x = 1; current_grid_y = 1; assigned = true;
+               }
+               if (!assigned) {
+                   for (int x = 1; x < start_node->getGridWidth() - 1 && !assigned; ++x) {
+                       for (int y = 1; y < start_node->getGridHeight() - 1; ++y) {
+                           if (start_node->occupyCell(x, y, id)) {
+                               current_grid_x = x; current_grid_y = y; assigned = true; break;
+                           }
+                       }
+                   }
+               }
+               if (assigned) {
+                   state = PassengerState::PATH_FOLLOWING;
+               }
+               else if (action_timer > 10.0) {
+                   state = PassengerState::LEFT;
+                   exit_time = spawn_time + real_travel_timer;
+                   return false;
+               }
+           }
+           return true;
+       }
 
-    if (state == PassengerState::FROM_TRAIN) {
-        // 直接转为在站台状态
-        state = PassengerState::ON_PLATFORM;
-    }
+       if (state == PassengerState::FROM_TRAIN) {
+           // 直接转为在站台状态
+           state = PassengerState::ON_PLATFORM;
+       }
 
-    if (state == PassengerState::ON_PLATFORM) {
-        if (current_node && current_node->getTypeCode() == "PLATFORM") {
-            std::string exitId = findNearestExit(graph);
-            if (!exitId.empty()) {
-                std::vector<int> newPath = graph.findPath(
-                    graph.getId(current_node_id), exitId, pathStrategy);
-                if (!newPath.empty()) {
-                    setPath(newPath);
-                    state = PassengerState::PATH_FOLLOWING;
-                }
-            }
-        }
-    }
+       if (state == PassengerState::ON_PLATFORM) {
+           if (current_node && current_node->getTypeCode() == "PLATFORM") {
+               std::string exitId = findNearestExit(graph);
+               if (!exitId.empty()) {
+                   std::vector<int> newPath = graph.findPath(
+                       graph.getId(current_node_id), exitId, pathStrategy);
+                   if (!newPath.empty()) {
+                       setPath(newPath);
+                       state = PassengerState::PATH_FOLLOWING;
+                   }
+               }
+           }
+       }
 
-    // [修改] 原有逻辑继续执行
-    if (state == PassengerState::COLLIDING) {
-        if (collision_timer > 2.0) {
-            collision_timer = 0;
-            state = PassengerState::PATH_FOLLOWING;
-        }
-        return true;
-    }
+       // [修改] 原有逻辑继续执行
+       if (state == PassengerState::COLLIDING) {
+           if (collision_timer > 2.0) {
+               collision_timer = 0;
+               state = PassengerState::PATH_FOLLOWING;
+           }
+           return true;
+       }
 
-    if (state == PassengerState::LEFT) return false;
+       if (state == PassengerState::LEFT) return false;
 
-    action_timer += dt;
-    collision_timer += dt;
-    real_travel_timer += dt; //新增每帧累加真实时间
-    bool is_currently_congested = (current_node_capacity > 0) &&
-        (current_node_load * 1.0 / current_node_capacity > 0.8);
+       action_timer += dt;
+       collision_timer += dt;
+       real_travel_timer += dt; //新增每帧累加真实时间
+       bool is_currently_congested = (current_node_capacity > 0) &&
+           (current_node_load * 1.0 / current_node_capacity > 0.8);
 
-    // [新增] 检查当前边的拥堵情况
-    bool is_edge_congested = false;
-    if (current_path_index > 0) {
-        std::string prevNodeId = graph.getId(path[current_path_index - 1]);
-        std::string currNodeId = graph.getId(current_node_id);
-        const Edge* edge = graph.getEdge(prevNodeId, currNodeId);
-        if (edge && edge->getCongestionLevel() > 0.8) {
-            is_edge_congested = true;
-        }
-    }
+       // [新增] 检查当前边的拥堵情况
+       bool is_edge_congested = false;
+       if (current_path_index > 0) {
+           std::string prevNodeId = graph.getId(path[current_path_index - 1]);
+           std::string currNodeId = graph.getId(current_node_id);
+           const Edge* edge = graph.getEdge(prevNodeId, currNodeId);
+           if (edge && edge->getCongestionLevel() > 0.8) {
+               is_edge_congested = true;
+           }
+       }
 
-    // [已重构] 原逻辑已移至下方PATH_FOLLOWING宏观转移中，此块已禁用
-    if (false && current_node_id == target_node_id) {
-        // 到达站台且要乘车，进入候车状态
-        if (headingToPlatform && current_node && current_node->getTypeCode() == "PLATFORM") {
-            state = PassengerState::WAITING_TRAIN;
+       // [已重构] 原逻辑已移至下方PATH_FOLLOWING宏观转移中，此块已禁用
+       if (false && current_node_id == target_node_id) {
+           // 到达站台且要乘车，进入候车状态
+           if (headingToPlatform && current_node && current_node->getTypeCode() == "PLATFORM") {
+               state = PassengerState::WAITING_TRAIN;
+               return true;
+           }
+
+           if (current_node && (current_node->getTypeCode() == "SECURITY" ||
+               current_node->getTypeCode() == "TICKET" ||
+               current_node->getTypeCode() == "GATE" ||
+               current_node->getTypeCode() == "EXIT")) {
+
+               if (!current_node->joinQueue(id)) {
+                   if (attributes.patience < 0.3) {
+                       if (current_grid_x >= 0 && current_grid_y >= 0) {
+                           current_node->releaseCell(current_grid_x, current_grid_y);
+                       }
+                       advancePath();
+                       if (current_path_index >= path.size()) {
+                           state = PassengerState::LEFT;
+                           exit_time = spawn_time + real_travel_timer;
+                       }
+                       else {
+                           target_node_id = path[current_path_index];
+                       }
+                       return true;
+                   }
+                   state = PassengerState::IN_QUEUE;
+                   action_timer = 0.0;
+                   return true;
+               }
+               else {
+                   state = PassengerState::IN_QUEUE;
+                   action_timer = 0.0;
+                   return true;
+               }
+           }
+           else {
+               // 不是服务节点，尝试进入边前往下一节点
+               if (!path.empty() && current_path_index < path.size() - 1) {
+                   int next_node_id = path[current_path_index + 1];
+                   const Edge* nextEdge = graph.getEdge(current_node_id, next_node_id);
+                   if (!nextEdge) {
+                       state = PassengerState::REPATHING;
+                       return true;
+                   }
+
+                   if (!nextEdge->tryEnterEdge()) {
+                       state = PassengerState::WAITING_EDGE;
+                       return true;
+                   }
+
+                   AbstractNode* nextNode = getNode(next_node_id);
+                   if (nextNode && !nextNode->canEnter()) {
+                       state = PassengerState::WAITING_EDGE;
+                       return true;
+                   }
+
+                   // 进入边：释放当前节点网格
+                   if (current_node && current_grid_x >= 0 && current_grid_y >= 0) {
+                       current_node->releaseCell(current_grid_x, current_grid_y);
+                   }
+
+                   // 占用边资源
+                   Edge* mutableEdge = graph.getEdgeMutable(current_node_id, next_node_id);
+                   if (mutableEdge) mutableEdge->addOccupant();
+                   current_edge_from = current_node_id;
+                   current_edge_to = next_node_id;
+                   transit_timer = 0.0;
+                   current_grid_x = -1;
+                   current_grid_y = -1;
+                   state = PassengerState::IN_TRANSIT;
+                   return true;
+               }
+               else {
+                   if (current_grid_x >= 0 && current_grid_y >= 0) {
+                       current_node->releaseCell(current_grid_x, current_grid_y);
+                       current_grid_x = -1;
+                       current_grid_y = -1;
+                   }
+                   state = PassengerState::LEFT;
+                   exit_time = spawn_time + real_travel_timer;
+                   return true;
+               }
+           }
+       }
+
+       // 处理WAITING_TRAIN状态：在站台候车，列车到站时上车离开
+       if (state == PassengerState::WAITING_TRAIN) {
+           if (current_node && current_node->getTypeCode() == "PLATFORM") {
+               PlatformNode* platform = dynamic_cast<PlatformNode*>(current_node);
+               if (platform && platform->isTrainArrivingNow()) {
+                   if (current_grid_x >= 0 && current_grid_y >= 0) {
+                       current_node->releaseCell(current_grid_x, current_grid_y);
+                   }
+                   state = PassengerState::LEFT;
+                   exit_time = spawn_time + real_travel_timer;
+               }
+           }
+           return true;
+       }
+
+       // 处理IN_TRANSIT状态：在边上移动
+       if (state == PassengerState::IN_TRANSIT) {
+           const Edge* edge = graph.getEdge(current_edge_from, current_edge_to);
+           transit_timer += dt;
+
+           if (edge && transit_timer >= edge->getPassThroughTime()) {
+               AbstractNode* nextNode = getNode(current_edge_to);
+               if (nextNode && nextNode->canEnter()) {
+                   // 释放边资源
+                   Edge* mutableEdge = graph.getEdgeMutable(current_edge_from, current_edge_to);
+                   if (mutableEdge) mutableEdge->removeOccupant();
+
+                   // 到达目标节点
+                   current_node_id = current_edge_to;
+                   current_path_index++;
+                   target_node_id = (current_path_index + 1 < static_cast<int>(path.size()))
+                       ? path[current_path_index + 1]
+                       : path[current_path_index];
+
+                   // 在目标节点分配网格
+                   bool assigned = false;
+                   if (nextNode->occupyCell(1, 1, id)) {
+                       current_grid_x = 1;
+                       current_grid_y = 1;
+                       assigned = true;
+                   }
+                   if (!assigned) {
+                       for (int x = 1; x < nextNode->getGridWidth() - 1 && !assigned; ++x) {
+                           for (int y = 1; y < nextNode->getGridHeight() - 1; ++y) {
+                               if (nextNode->occupyCell(x, y, id)) {
+                                   current_grid_x = x;
+                                   current_grid_y = y;
+                                   assigned = true;
+                                   break;
+                               }
+                           }
+                       }
+                   }
+
+                   current_edge_from = -1;
+                   current_edge_to = -1;
+                   transit_timer = 0.0;
+                   state = PassengerState::PATH_FOLLOWING;
+               }
+            //    else {
+            //         //修改4.25
+            //        if (transit_timer > edge->getPassThroughTime() + 30.0) {
+            //             Edge* mutableEdge = graph.getEdgeMutable(current_edge_from, current_edge_to);
+            //             if (mutableEdge) mutableEdge->removeOccupant();  // 释放边
+                
+            //             // 回退到起点节点
+            //             current_node_id = current_edge_from;
+            //             current_edge_from = -1;
+            //             current_edge_to = -1;
+            //             transit_timer = 0.0;
+                
+            //             // 重新占据起点的网格
+            //             AbstractNode* fromNode = getNode(current_node_id);
+            //             if (fromNode) fromNode->occupyCell(1, 1, id);
+            //             current_grid_x = 1; current_grid_y = 1;
+                
+            //             state = PassengerState::PATH_FOLLOWING;  // 回到可重规划的状态
+            //         }
+            //    }
+           }
+           return true;
+       }
+
+       // 处理WAITING_EDGE状态：等待边/目标节点可用
+       //修改4.25
+       if (state == PassengerState::WAITING_EDGE) {
             return true;
         }
 
-        if (current_node && (current_node->getTypeCode() == "SECURITY" ||
-            current_node->getTypeCode() == "TICKET" ||
-            current_node->getTypeCode() == "GATE" ||
-            current_node->getTypeCode() == "EXIT")) {
+       if (state == PassengerState::IN_QUEUE) {
+           if (current_node) {
+               if (current_node->isBeingServed(id)) {
+                   double service_time = node_service_time;
+                   if (attributes.has_luggage && current_node->getTypeCode() == "SECURITY") {
+                       service_time *= 1.5;
+                   }
+                   service_time /= std::max<float>(0.1f, attributes.speed);
 
-            if (!current_node->joinQueue(id)) {
-                if (attributes.patience < 0.3) {
-                    if (current_grid_x >= 0 && current_grid_y >= 0) {
-                        current_node->releaseCell(current_grid_x, current_grid_y);
+                   if (is_currently_congested) {
+                       service_time *= 1.5;
+                   }
+
+                   if (action_timer >= service_time) {
+                       current_node->completeService(id);
+                       // 服务完成，尝试进入边前往下一节点
+                       if (!path.empty() && current_path_index < path.size() - 1) {
+                           int next_node_id = path[current_path_index + 1];
+                           const Edge* nextEdge = graph.getEdge(current_node_id, next_node_id);
+                           if (nextEdge && nextEdge->tryEnterEdge()) {
+                               AbstractNode* nextNode = getNode(next_node_id);
+                               if (nextNode && nextNode->canEnter()) {
+                                   // 释放当前节点网格
+                                   if (current_grid_x >= 0 && current_grid_y >= 0) {
+                                       current_node->releaseCell(current_grid_x, current_grid_y);
+                                   }
+                                   // 进入边
+                                   Edge* mutableEdge = graph.getEdgeMutable(current_node_id, next_node_id);
+                                   if (mutableEdge) mutableEdge->addOccupant();
+                                   current_edge_from = current_node_id;
+                                   current_edge_to = next_node_id;
+                                   transit_timer = 0.0;
+                                   current_grid_x = -1;
+                                   current_grid_y = -1;
+                                   state = PassengerState::IN_TRANSIT;
+                               }
+                               else {
+                                   state = PassengerState::PATH_FOLLOWING;
+                               }
+                           }
+                           else {
+                               state = PassengerState::PATH_FOLLOWING;
+                           }
+                       }
+                       else {
+                           if (current_grid_x >= 0 && current_grid_y >= 0) {
+                               current_node->releaseCell(current_grid_x, current_grid_y);
+                           }
+                           state = PassengerState::LEFT;
+                           exit_time = spawn_time + real_travel_timer;
+                       }
+                   }
+               }
+           }
+       }
+
+       // 检查是否需要重新规划路径
+       if (needsReplanning(current_node, graph) && replansThisFrame < maxReplansPerFrame) {
+           state = PassengerState::REPATHING;
+           std::string currentId = graph.getId(current_node_id);
+           std::string targetId = graph.getId(target_node_id);
+           replanPath(currentId, targetId, graph);
+           state = PassengerState::PATH_FOLLOWING;
+           replansThisFrame++;
+       }
+
+       
+       // 只要处于PATH_FOLLOWING状态且路径有效，就尝试转移
+       // ==========================================
+       if (state == PassengerState::PATH_FOLLOWING && !path.empty()) {
+
+           // 1. 服务节点必须先排队（注意：EXIT不需要排队，走到出口直接离场）
+           //修改4.25
+            if (current_node && (current_node->getTypeCode() == "SECURITY" || current_node->getTypeCode() == "TICKET" || current_node->getTypeCode() == "GATE")) {
+                if (current_node->joinQueue(id)) {
+                    // 只有真正排进去了，才变成排队状态
+                    state = PassengerState::IN_QUEUE;
+                    action_timer = 0.0;
+                } else {
+                    // 排队失败（比如队列满了、节点太堵）
+                    if (attributes.patience < 0.3) {
+                        // 没耐心：直接放弃当前节点，强制跳到路径下一个节点
+                        if (current_grid_x >= 0 && current_grid_y >= 0) current_node->releaseCell(current_grid_x, current_grid_y);
+                        advancePath();
+                        if (current_path_index >= static_cast<int>(path.size())) {
+                            state = PassengerState::LEFT;
+                            exit_time = spawn_time + real_travel_timer;
+                            return false;
+                        }
+                    } else {
+                        // 有耐心：保持在 PATH_FOLLOWING 状态原地等待
+                        // 绝对不能写成 state = PassengerState::IN_QUEUE; 否则会变成幽灵卡死！
                     }
-                    advancePath();
-                    if (current_path_index >= path.size()) {
-                        state = PassengerState::LEFT;
-                        exit_time = spawn_time + real_travel_timer;
-                    }
-                    else {
-                        target_node_id = path[current_path_index];
-                    }
-                    return true;
                 }
-                state = PassengerState::IN_QUEUE;
-                action_timer = 0.0;
                 return true;
             }
-            else {
-                state = PassengerState::IN_QUEUE;
-                action_timer = 0.0;
-                return true;
-            }
-        }
-        else {
-            // 不是服务节点，尝试进入边前往下一节点
-            if (!path.empty() && current_path_index < path.size() - 1) {
+            //修改结束
+
+           // 2. 出口节点直接离场，绝不排队
+           if (current_node && current_node->getTypeCode() == "EXIT") {
+               if (current_grid_x >= 0 && current_grid_y >= 0) {
+                   current_node->releaseCell(current_grid_x, current_grid_y);
+                   current_grid_x = -1; current_grid_y = -1;
+               }
+               state = PassengerState::LEFT;
+               exit_time = spawn_time + real_travel_timer;
+               return false;
+           }
+
+           // 3. 站台候车
+           if (headingToPlatform && current_node && current_node->getTypeCode() == "PLATFORM") {
+               state = PassengerState::WAITING_TRAIN;
+               return true;
+           }
+
+           // 3. 【关键修复】随时尝试进入下一条边（打破死循环的唯一出路）
+            if (current_path_index < static_cast<int>(path.size()) - 1) {
                 int next_node_id = path[current_path_index + 1];
                 const Edge* nextEdge = graph.getEdge(current_node_id, next_node_id);
                 if (!nextEdge) {
                     state = PassengerState::REPATHING;
                     return true;
                 }
-
-                if (!nextEdge->tryEnterEdge()) {
-                    state = PassengerState::WAITING_EDGE;
-                    return true;
-                }
-
                 AbstractNode* nextNode = getNode(next_node_id);
-                if (nextNode && !nextNode->canEnter()) {
-                    state = PassengerState::WAITING_EDGE;
+                if (!nextEdge->tryEnterEdge() || (nextNode && !nextNode->canEnter())) {
+                    // 【根治修改】：不再切换状态为 WAITING_EDGE！
+                    // 原地累加等待时间，并将超时重规划逻辑内聚在这里，然后故意不 return，让代码自然穿透到下方的微观移动逻辑！
+                    waitTimer += dt;
+                    if (waitTimer > 60.0) {
+                        if (needsReplanning(current_node, graph)) {
+                            std::string currentId = graph.getId(current_node_id);
+                            std::string targetId = graph.getId(target_node_id);
+                            replanPath(currentId, targetId, graph);
+                        }
+                        waitTimer = 0.0;
+                    }
+                    // 注意这里绝对不能写 return，必须穿透！
+                } else {
+                    if (current_grid_x >= 0 && current_grid_y >= 0) current_node->releaseCell(current_grid_x, current_grid_y);
+                    Edge* mutableEdge = graph.getEdgeMutable(current_node_id, next_node_id);
+                    if (mutableEdge) mutableEdge->addOccupant();
+                    current_edge_from = current_node_id;
+                    current_edge_to = next_node_id;
+                    transit_timer = 0.0;
+                    current_grid_x = -1;
+                    current_grid_y = -1;
+                    state = PassengerState::IN_TRANSIT;
+                    waitTimer = 0.0; // 成功进边，重置等待计时器
                     return true;
                 }
-
-                // 进入边：释放当前节点网格
-                if (current_node && current_grid_x >= 0 && current_grid_y >= 0) {
-                    current_node->releaseCell(current_grid_x, current_grid_y);
-                }
-
-                // 占用边资源
-                Edge* mutableEdge = graph.getEdgeMutable(current_node_id, next_node_id);
-                if (mutableEdge) mutableEdge->addOccupant();
-                current_edge_from = current_node_id;
-                current_edge_to = next_node_id;
-                transit_timer = 0.0;
-                current_grid_x = -1;
-                current_grid_y = -1;
-                state = PassengerState::IN_TRANSIT;
-                return true;
-            }
-            else {
+            } else {
                 if (current_grid_x >= 0 && current_grid_y >= 0) {
                     current_node->releaseCell(current_grid_x, current_grid_y);
                     current_grid_x = -1;
@@ -265,223 +517,53 @@ bool Passenger::update(double dt, int current_node_load, int current_node_capaci
                 }
                 state = PassengerState::LEFT;
                 exit_time = spawn_time + real_travel_timer;
-                return true;
+                return false;
             }
-        }
-    }
+       }
 
-    // 处理WAITING_TRAIN状态：在站台候车，列车到站时上车离开
-    if (state == PassengerState::WAITING_TRAIN) {
-        if (current_node && current_node->getTypeCode() == "PLATFORM") {
-            PlatformNode* platform = dynamic_cast<PlatformNode*>(current_node);
-            if (platform && platform->isTrainArrivingNow()) {
-                if (current_grid_x >= 0 && current_grid_y >= 0) {
-                    current_node->releaseCell(current_grid_x, current_grid_y);
-                }
-                state = PassengerState::LEFT;
-                exit_time = spawn_time + real_travel_timer;
-            }
-        }
-        return true;
-    }
+        //碰撞策略核心：在节点内部移动（降级为等待进边时的防重叠行为）
+        //上方已经允许穿透，所有被边阻断的节点（HALL、STAIR甚至安检门口）都会掉到这里
+        //使用轻量级随机游走，彻底取代原本极其消耗性能且容易死锁的BFS逻辑
+        if (state == PassengerState::PATH_FOLLOWING && current_node && current_grid_x >= 0 && current_grid_y >= 0) {
+            collision_timer += dt; // 累加碰撞等待时间
+        
+            // 每隔 0.5 秒尝试走一步（避免每帧计算浪费性能）
+            if (collision_timer >= 0.5) {
+                const int dx[] = { 0, 0, 1, -1 };
+                const int dy[] = { 1, -1, 0, 0 };
+            
+                // 随机打乱四个移动方向
+                int dirs[4] = {0, 1, 2, 3};
 
-    // 处理IN_TRANSIT状态：在边上移动
-    if (state == PassengerState::IN_TRANSIT) {
-        const Edge* edge = graph.getEdge(current_edge_from, current_edge_to);
-        transit_timer += dt;
-
-        if (edge && transit_timer >= edge->getPassThroughTime()) {
-            AbstractNode* nextNode = getNode(current_edge_to);
-            if (nextNode && nextNode->canEnter()) {
-                // 释放边资源
-                Edge* mutableEdge = graph.getEdgeMutable(current_edge_from, current_edge_to);
-                if (mutableEdge) mutableEdge->removeOccupant();
-
-                // 到达目标节点
-                current_node_id = current_edge_to;
-                current_path_index++;
-                target_node_id = (current_path_index + 1 < static_cast<int>(path.size()))
-                    ? path[current_path_index + 1]
-                    : path[current_path_index];
-
-                // 在目标节点分配网格
-                bool assigned = false;
-                if (nextNode->occupyCell(1, 1, id)) {
-                    current_grid_x = 1;
-                    current_grid_y = 1;
-                    assigned = true;
-                }
-                if (!assigned) {
-                    for (int x = 1; x < nextNode->getGridWidth() - 1 && !assigned; ++x) {
-                        for (int y = 1; y < nextNode->getGridHeight() - 1; ++y) {
-                            if (nextNode->occupyCell(x, y, id)) {
-                                current_grid_x = x;
-                                current_grid_y = y;
-                                assigned = true;
-                                break;
-                            }
-                        }
+                //随机打乱四个移动方向，避免死锁
+                static thread_local std::mt19937 local_rng(std::random_device{}());
+                std::shuffle(dirs, dirs + 4, local_rng);
+            
+                bool moved = false;
+                for (int i = 0; i < 4; ++i) {
+                    int nx = current_grid_x + dx[dirs[i]];
+                    int ny = current_grid_y + dy[dirs[i]];
+                
+                    // 只要这个方向不是墙、不是人，就走过去
+                    if (!current_node->isCellObstacle(nx, ny) && !current_node->isCellOccupied(nx, ny)) {
+                        current_node->moveCell(current_grid_x, current_grid_y, nx, ny, id);
+                        current_grid_x = nx;
+                        current_grid_y = ny;
+                        moved = true;
+                        break; // 走通一步就停下，等下个 0.5 秒
                     }
+                }   
+            
+                if (moved) {
+                    collision_timer = 0.0; // 成功移动，清零计时器
                 }
-
-                current_edge_from = -1;
-                current_edge_to = -1;
-                transit_timer = 0.0;
-                state = PassengerState::PATH_FOLLOWING;
-            }
-            //    else {
-            //         //修改4.25
-            //        if (transit_timer > edge->getPassThroughTime() + 30.0) {
-            //             Edge* mutableEdge = graph.getEdgeMutable(current_edge_from, current_edge_to);
-            //             if (mutableEdge) mutableEdge->removeOccupant();  // 释放边
-
-            //             // 回退到起点节点
-            //             current_node_id = current_edge_from;
-            //             current_edge_from = -1;
-            //             current_edge_to = -1;
-            //             transit_timer = 0.0;
-
-            //             // 重新占据起点的网格
-            //             AbstractNode* fromNode = getNode(current_node_id);
-            //             if (fromNode) fromNode->occupyCell(1, 1, id);
-            //             current_grid_x = 1; current_grid_y = 1;
-
-            //             state = PassengerState::PATH_FOLLOWING;  // 回到可重规划的状态
-            //         }
-            //    }
-        }
-        return true;
-    }
-
-    // 检查是否需要重新规划路径
-    if (needsReplanning(current_node, graph) && replansThisFrame < maxReplansPerFrame) {
-        state = PassengerState::REPATHING;
-        std::string currentId = graph.getId(current_node_id);
-        std::string targetId = graph.getId(target_node_id);
-        replanPath(currentId, targetId, graph);
-        state = PassengerState::PATH_FOLLOWING;
-        replansThisFrame++;
-    }
-
-    // 只要处于PATH_FOLLOWING状态且路径有效，就尝试转移
-    if (state == PassengerState::PATH_FOLLOWING && !path.empty()) {
-
-        // 1. 服务节点必须先排队（注意：EXIT不需要排队，走到出口直接离场）
-        if (current_node && (current_node->getTypeCode() == "SECURITY" || current_node->getTypeCode() == "TICKET" || current_node->getTypeCode() == "GATE")) {
-            if (current_node->joinQueue(id)) {
-                state = PassengerState::IN_QUEUE;
-                action_timer = 0.0;
-            } else {
-                if (attributes.patience < 0.3) {
-                    if (current_grid_x >= 0 && current_grid_y >= 0) current_node->releaseCell(current_grid_x, current_grid_y);
-                    advancePath();
-                    if (current_path_index >= static_cast<int>(path.size())) {
-                        state = PassengerState::LEFT;
-                        exit_time = spawn_time + real_travel_timer;
-                        return false;
-                    }
-                }
-            }
-            return true;
-        }
-
-        // 2. 出口节点直接离场，绝不排队
-        if (current_node && current_node->getTypeCode() == "EXIT") {
-            if (current_grid_x >= 0 && current_grid_y >= 0) {
-                current_node->releaseCell(current_grid_x, current_grid_y);
-                current_grid_x = -1; current_grid_y = -1;
-            }
-            state = PassengerState::LEFT;
-            exit_time = spawn_time + real_travel_timer;
-            return false;
-        }
-
-        // 3. 站台候车
-        if (headingToPlatform && current_node && current_node->getTypeCode() == "PLATFORM") {
-            state = PassengerState::WAITING_TRAIN;
-            return true;
-        }
-
-        // 4. 随时尝试进入下一条边（打破死循环的唯一出路）
-        if (current_path_index < static_cast<int>(path.size()) - 1) {
-            int next_node_id = path[current_path_index + 1];
-            const Edge* nextEdge = graph.getEdge(current_node_id, next_node_id);
-            if (!nextEdge) {
-                state = PassengerState::REPATHING;
-                return true;
-            }
-            AbstractNode* nextNode = getNode(next_node_id);
-            if (!nextEdge->tryEnterEdge() || (nextNode && !nextNode->canEnter())) {
-                waitTimer += dt;
-                if (waitTimer > 60.0) {
-                    if (needsReplanning(current_node, graph)) {
-                        std::string currentId = graph.getId(current_node_id);
-                        std::string targetId = graph.getId(target_node_id);
-                        replanPath(currentId, targetId, graph);
-                    }
-                    waitTimer = 0.0;
-                }
-            } else {
-                if (current_grid_x >= 0 && current_grid_y >= 0) current_node->releaseCell(current_grid_x, current_grid_y);
-                Edge* mutableEdge = graph.getEdgeMutable(current_node_id, next_node_id);
-                if (mutableEdge) mutableEdge->addOccupant();
-                current_edge_from = current_node_id;
-                current_edge_to = next_node_id;
-                transit_timer = 0.0;
-                current_grid_x = -1;
-                current_grid_y = -1;
-                state = PassengerState::IN_TRANSIT;
-                waitTimer = 0.0;
-                return true;
-            }
-        } else {
-            if (current_grid_x >= 0 && current_grid_y >= 0) {
-                current_node->releaseCell(current_grid_x, current_grid_y);
-                current_grid_x = -1;
-                current_grid_y = -1;
-            }
-            state = PassengerState::LEFT;
-            exit_time = spawn_time + real_travel_timer;
-            return false;
-        }
-    }
-
-    // 碰撞策略核心：在节点内部移动
-    if (state == PassengerState::PATH_FOLLOWING && current_node && current_grid_x >= 0 && current_grid_y >= 0) {
-        collision_timer += dt;
-
-        if (collision_timer >= 0.5) {
-            const int dx[] = { 0, 0, 1, -1 };
-            const int dy[] = { 1, -1, 0, 0 };
-
-            int dirs[4] = {0, 1, 2, 3};
-
-            static thread_local std::mt19937 local_rng(std::random_device{}());
-            std::shuffle(dirs, dirs + 4, local_rng);
-
-            bool moved = false;
-            for (int i = 0; i < 4; ++i) {
-                int nx = current_grid_x + dx[dirs[i]];
-                int ny = current_grid_y + dy[dirs[i]];
-
-                if (!current_node->isCellObstacle(nx, ny) && !current_node->isCellOccupied(nx, ny)) {
-                    current_node->moveCell(current_grid_x, current_grid_y, nx, ny, id);
-                    current_grid_x = nx;
-                    current_grid_y = ny;
-                    moved = true;
-                    break;
-                }
-            }
-
-            if (moved) {
-                collision_timer = 0.0;
+                //如果四面被死死包围，moved为false，collision_timer会继续累加，但永远不会触发死循环BFS
             }
         }
-    }
 
 
-    return true;
-}
+       return true;
+   }
 
 void Passenger::advancePath() {
     if (current_path_index < static_cast<int>(path.size()) - 1) {
