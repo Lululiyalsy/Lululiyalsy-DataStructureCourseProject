@@ -51,6 +51,7 @@ public:
     int current_edge_to;            // 当前通道终点索引
     double transit_timer;           // 通行计时器
     double waitTimer;               // 等待边计时器
+    double real_travel_timer;       //真实通行时间计时器（新增）
 
     double lastReplanTime;          // 上次重规划时间
     double replanInterval;          // 重规划间隔

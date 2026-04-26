@@ -191,12 +191,16 @@ public:
     std::string getTypeName() const override { return "\u7ad9\u53f0"; }
     std::string getTypeCode() const override { return "PLATFORM"; }
     void render() const override;
+
+    //获取刚到站的瞬间事件（仅触发一帧）
+    bool hasJustArrived() const { return justArrivedEvent; }
     bool isTrainArrivingNow() const { return isTrainArriving; }         // 列车是否到站
     bool canAcceptTrainPassengers() const { return currentLoad < capacity * 0.9; } // 是否可接纳列车乘客
     std::map<std::string, std::string> toProperties() const override;
     void fromProperties(const std::map<std::string, std::string>& props) override;
 
 private:
+    bool justArrivedEvent; // 刚到站的事件标志
     void handleTrainArrival(double deltaTime);
 };
 

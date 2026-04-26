@@ -56,39 +56,69 @@ void PassengerGenerator::updateStationLayout() {
 }
 
 std::vector<Passenger> PassengerGenerator::generateTrainPassengers(double dt, int remaining) {
-    std::vector<Passenger> train_passengers;
-    if (remaining <= 0) return train_passengers;
-    for (const auto& platformId : platformIds) {
-        if (remaining <= 0) break;
-        PlatformNode* platform = dynamic_cast<PlatformNode*>(graphRef.getNode(platformId));
-        if (platform && platform->isTrainArrivingNow() && platform->canAcceptTrainPassengers()) {
-            int numPassengers = std::min(8, remaining);
-            for (int i = 0; i < numPassengers; ++i) {
-                trainPassengerCounter++;
-                total_generated++;
-                std::string exitId = findRandomExit();
-                if (!exitId.empty()) {
-                    double currentAbsTime = clock.get_total_seconds();
-                    Passenger p(trainPassengerCounter, graphRef.getIndex(platformId), graphRef.getIndex(exitId),
-                        generateDefaultAttributes(), currentAbsTime, PathStrategy::SHORTEST_TIME, true, &graphRef);
-                    std::vector<int> path = graphRef.findPath(platformId, exitId, PathStrategy::SHORTEST_TIME);
-                    if (!path.empty()) {
-                        p.setPath(path);
-                        train_passengers.push_back(p);
-                        remaining--;
+        std::vector<Passenger> train_passengers;
+        if (remaining <= 0) return train_passengers;
+        
+        for (const auto& platformId : platformIds) {
+            if (remaining <= 0) break;
+            PlatformNode* platform = dynamic_cast<PlatformNode*>(graphRef.getNode(platformId));
+            
+            // 【关键修复1】：从持续30秒的"门是否开着"改为"是否是刚到站这一帧"
+            if (platform && platform->hasJustArrived() && platform->canAcceptTrainPassengers()) {
+                
+                // 【关键修复2】：一列车合理下车人数（比如40人），而不是每秒8人持续喷30秒
+                int numPassengers = std::min(40, remaining); 
+                
+                for (int i = 0; i < numPassengers; ++i) {
+                    trainPassengerCounter++;
+                    total_generated++;
+                    std::string exitId = findRandomExit();
+                    if (!exitId.empty()) {
+                        double currentAbsTime = clock.get_total_seconds();
+                        Passenger p(trainPassengerCounter, graphRef.getIndex(platformId), graphRef.getIndex(exitId), generateDefaultAttributes(), currentAbsTime, PathStrategy::SHORTEST_TIME, true, &graphRef);
+                        std::vector<int> path = graphRef.findPath(platformId, exitId, PathStrategy::SHORTEST_TIME);
+                        if (!path.empty()) {
+                            p.setPath(path);
+                            train_passengers.push_back(p);
+                            remaining--;
+                        } else {
+                            trainPassengerCounter--;
+                            total_generated--;
+                        }
                     } else {
                         trainPassengerCounter--;
                         total_generated--;
                     }
-                } else {
-                    trainPassengerCounter--;
-                    total_generated--;
                 }
             }
         }
+        
+                //【关键修复3】：补全列车下车乘客的统计逻辑，防止数据凭空消失
+        int trainCount = static_cast<int>(train_passengers.size());
+        if (trainCount > 0) {
+            // 【新增】获取当前所处的时间段，将列车乘客也归入对应时段档案
+            const CrowdProfile* currentProfile = get_current_profile();
+            if (currentProfile) {
+                stats.profile_counts[currentProfile->name] += trainCount;
+            }
+
+            if (clock.is_weekday()) {
+                stats.weekday_total += trainCount;
+                // 【修复】保持与入口进站完全一致的高峰/平峰判定逻辑 (rate >= 4.0 视为高峰)
+                if (currentProfile && currentProfile->arrival_rate >= 4.0) {
+                    stats.peak_total += trainCount; 
+                } else {
+                    stats.offpeak_total += trainCount;
+                }
+            } else {
+                stats.weekend_total += trainCount;
+                stats.offpeak_total += trainCount; 
+            }
+        }
+
+
+        return train_passengers;
     }
-    return train_passengers;
-}
 
 std::string PassengerGenerator::findRandomExit() const {
     std::vector<std::string> exitIds;
@@ -143,7 +173,7 @@ void PassengerGenerator::initialize_default_schedule() {
     weekday_offpeak.end_second = TimeSlot::time_to_seconds(17, 0);
     weekday_offpeak.day_mask = TimeSlot::weekday_mask();
     weekday_offpeak.profile.name = "\u5de5\u4f5c\u65e5\u5e73\u5cf0";
-    weekday_offpeak.profile.arrival_rate = 3.0;
+    weekday_offpeak.profile.arrival_rate = 5.0;
     weekday_offpeak.profile.familiarity_min = 0.6f; weekday_offpeak.profile.familiarity_max = 0.9f;
     weekday_offpeak.profile.patience_min = 0.6f; weekday_offpeak.profile.patience_max = 0.9f;
     weekday_offpeak.profile.luggage_prob = 0.3f; weekday_offpeak.profile.commute_ratio = 0.5f;
@@ -154,7 +184,7 @@ void PassengerGenerator::initialize_default_schedule() {
     weekend_peak.end_second = TimeSlot::time_to_seconds(20, 0);
     weekend_peak.day_mask = TimeSlot::weekend_mask();
     weekend_peak.profile.name = "\u5468\u672b\u9ad8\u5cf0";
-    weekend_peak.profile.arrival_rate = 4.0;
+    weekend_peak.profile.arrival_rate = 5.0;
     weekend_peak.profile.familiarity_min = 0.3f; weekend_peak.profile.familiarity_max = 0.7f;
     weekend_peak.profile.patience_min = 0.7f; weekend_peak.profile.patience_max = 1.0f;
     weekend_peak.profile.luggage_prob = 0.5f; weekend_peak.profile.commute_ratio = 0.2f;
@@ -164,7 +194,7 @@ void PassengerGenerator::initialize_default_schedule() {
     default_slot.start_second = 0; default_slot.end_second = 86400;
     default_slot.day_mask = TimeSlot::daily_mask();
     default_slot.profile.name = "\u9ed8\u8ba4\u5e73\u5cf0";
-    default_slot.profile.arrival_rate = 2.0;
+    default_slot.profile.arrival_rate = 4.0;
     schedule.push_back(default_slot);
 }
 
@@ -180,63 +210,127 @@ const CrowdProfile* PassengerGenerator::get_current_profile() {
 }
 
 std::vector<Passenger> PassengerGenerator::generateEntryPassengers(double dt, int remaining) {
-    std::vector<Passenger> new_passengers;
-    const CrowdProfile* profile = get_current_profile();
-    if (!profile || remaining <= 0) return new_passengers;
-    double rate = profile->arrival_rate;
-    std::poisson_distribution<int> dist(rate * dt);
-    int count = dist(rng);
-    count = std::min(count, remaining);
-    if (count > 0) {
-        new_passengers.reserve(count);
-        std::uniform_real_distribution<float> speed_dist(profile->speed_min, profile->speed_max);
-        std::uniform_real_distribution<float> patience_dist(profile->patience_min, profile->patience_max);
-        std::uniform_real_distribution<float> fam_dist(profile->familiarity_min, profile->familiarity_max);
-        std::bernoulli_distribution luggage_dist(profile->luggage_prob);
-        std::bernoulli_distribution purpose_dist(profile->commute_ratio);
-        std::vector<std::string> hallIds, exitIds, platformIds;
-        for (const auto& node : graphRef.getAllNodes()) {
-            if (node->getTypeCode() == "HALL") hallIds.push_back(node->getId());
-            else if (node->getTypeCode() == "EXIT") exitIds.push_back(node->getId());
-            else if (node->getTypeCode() == "PLATFORM") platformIds.push_back(node->getId());
-        }
-        if (hallIds.empty() || (exitIds.empty() && platformIds.empty())) return new_passengers;
-        std::uniform_int_distribution<> hallDist(0, hallIds.size() - 1);
-        std::uniform_int_distribution<> exitDist(0, exitIds.size() - 1);
-        std::uniform_int_distribution<> platformDist(0, platformIds.size() - 1);
-        std::bernoulli_distribution direction_dist(0.6);
-        for (int i = 0; i < count; ++i) {
-            total_generated++;
-            PassengerAttributes attrs;
-            attrs.speed = speed_dist(rng); attrs.patience = patience_dist(rng);
-            attrs.familiarity = fam_dist(rng); attrs.has_luggage = luggage_dist(rng);
-            attrs.purpose = purpose_dist(rng) ? "commute" : "leisure";
-            PathStrategy strategy = PathStrategy::MULTI_OBJECTIVE_OPTIMIZATION;
-            if (attrs.has_luggage) strategy = PathStrategy::SHORTEST_DISTANCE;
-            else if (purpose_dist(rng) && (clock.get_current_hour() >= 7 && clock.get_current_hour() <= 9)) strategy = PathStrategy::SHORTEST_TIME;
-            std::string startId = hallIds[hallDist(rng)];
-            std::string endId;
-            bool headingToPlatform = direction_dist(rng) && !platformIds.empty();
-            if (headingToPlatform) endId = platformIds[platformDist(rng)];
-            else if (!exitIds.empty()) endId = exitIds[exitDist(rng)];
-            else { endId = platformIds[platformDist(rng)]; headingToPlatform = true; }
-            new_passengers.emplace_back(total_generated, graphRef.getIndex(startId), graphRef.getIndex(endId),
-                attrs, clock.get_total_seconds(), strategy, false, &graphRef);
-            if (headingToPlatform) { new_passengers.back().isFromTrain = false; new_passengers.back().headingToPlatform = true; }
-            std::vector<int> path = graphRef.findPath(startId, endId, strategy);
+       std::vector<Passenger> new_passengers;
+       const CrowdProfile* profile = get_current_profile();
+
+       if (!profile || remaining <= 0) return new_passengers;
+
+       double rate = profile->arrival_rate;
+
+       std::poisson_distribution<int> dist(rate * dt);
+       int count = dist(rng);
+       count = std::min(count, remaining);
+
+       if (count > 0) {
+           size_t initial_size = new_passengers.size(); //新增记录进入生成循环前的初始数量
+           new_passengers.reserve(count);
+
+           std::uniform_real_distribution<float> speed_dist(
+               profile->speed_min, profile->speed_max);
+           std::uniform_real_distribution<float> patience_dist(
+               profile->patience_min, profile->patience_max);
+           std::uniform_real_distribution<float> fam_dist(
+               profile->familiarity_min, profile->familiarity_max);
+           std::bernoulli_distribution luggage_dist(profile->luggage_prob);
+           std::bernoulli_distribution purpose_dist(profile->commute_ratio);
+
+           // 获取所有入口和出口节点
+           std::vector<std::string> hallIds;
+           std::vector<std::string> exitIds;
+           std::vector<std::string> platformIds;
+           for (const auto& node : graphRef.getAllNodes()) {
+               if (node->getTypeCode() == "HALL") {
+                   hallIds.push_back(node->getId());
+               }
+               else if (node->getTypeCode() == "EXIT") {
+                   exitIds.push_back(node->getId());
+               }
+               else if (node->getTypeCode() == "PLATFORM") {
+                   platformIds.push_back(node->getId());
+               }
+           }
+
+           if (hallIds.empty() || (exitIds.empty() && platformIds.empty())) {
+               return new_passengers;
+           }
+
+           std::uniform_int_distribution<> hallDist(0, hallIds.size() - 1);
+           std::uniform_int_distribution<> exitDist(0, exitIds.size() - 1);
+           std::uniform_int_distribution<> platformDist(0, platformIds.size() - 1);
+           std::bernoulli_distribution direction_dist(0.6);
+
+           for (int i = 0; i < count; ++i) {
+               total_generated++;
+               PassengerAttributes attrs;
+               attrs.speed = speed_dist(rng);
+               attrs.patience = patience_dist(rng);
+               attrs.familiarity = fam_dist(rng);
+               attrs.has_luggage = luggage_dist(rng);
+               attrs.purpose = purpose_dist(rng) ? "commute" : "leisure";
+
+               // 根据乘客特征和时间选择路径规划策略
+               PathStrategy strategy = PathStrategy::MULTI_OBJECTIVE_OPTIMIZATION;
+
+               // 如果有行李，选择最短距离
+               if (attrs.has_luggage) {
+                   strategy = PathStrategy::SHORTEST_DISTANCE;
+               }
+               // 如果是上班高峰期且是通勤目的，选择最短时间
+               else if (purpose_dist(rng) && (clock.get_current_hour() >= 7 && clock.get_current_hour() <= 9)) {
+                   strategy = PathStrategy::SHORTEST_TIME;
+               }
+
+               std::string startId = hallIds[hallDist(rng)];
+               std::string endId;
+               bool headingToPlatform = direction_dist(rng) && !platformIds.empty();
+               if (headingToPlatform) {
+                   endId = platformIds[platformDist(rng)];
+               }
+               else if (!exitIds.empty()) {
+                   endId = exitIds[exitDist(rng)];
+               }
+               else {
+                   endId = platformIds[platformDist(rng)];
+                   headingToPlatform = true;
+               }
+
+               new_passengers.emplace_back(total_generated, graphRef.getIndex(startId), graphRef.getIndex(endId),
+                   attrs, clock.get_total_seconds(), strategy, false, &graphRef);
+
+               if (headingToPlatform) {
+                   new_passengers.back().isFromTrain = false;
+                   new_passengers.back().headingToPlatform = true;
+               }
+
+               // 计算路径
+               std::vector<int> path = graphRef.findPath(startId, endId, strategy);
+
             if (!path.empty()) {
                 new_passengers.back().setPath(path);
-            } else {
+            } 
+            else {
+                // 【必须加上】路径不通，直接丢弃，防止内存越界污染整个系统
                 new_passengers.pop_back();
-                total_generated--;
+                total_generated--; 
             }
-        }
-        stats.profile_counts[profile->name] += count;
-        if (clock.is_weekday()) { stats.weekday_total += count; if (rate >= 2.0) stats.peak_total += count; else stats.offpeak_total += count; }
-        else stats.weekend_total += count;
-    }
-    return new_passengers;
-}
+           }
+
+            // Update stats（修复：使用实际成功加入的数量，而不是原始的count，防止路径失败被踢掉的乘客变成幽灵数据）
+            int actual_count = static_cast<int>(new_passengers.size()) - initial_size;
+            if (actual_count > 0) {
+                stats.profile_counts[profile->name] += actual_count;
+                if (clock.is_weekday()) {
+                    stats.weekday_total += actual_count;
+                    if (rate >= 4.0) stats.peak_total += actual_count;
+                    else stats.offpeak_total += actual_count;
+                } else {
+                    stats.weekend_total += actual_count;
+                }
+            }
+       }
+
+       return new_passengers;
+   }
 
 std::vector<Passenger> PassengerGenerator::generate(double dt, int currentOnlineCount) {
     std::vector<Passenger> all_passengers;

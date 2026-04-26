@@ -490,92 +490,75 @@ public:
 
 class PlatformNode : public AbstractNode {
 public:
-   std::string lineName;
-   int direction;
-   int waitCap;
-   bool hasScreenDoor;
-   double nextTrainIn;
-   bool isTrainArriving;
-   double doorOpenTimer;
-   static constexpr double DOOR_OPEN_DURATION = 30.0;
+    std::string lineName;
+    int direction;
+    int waitCap;
+    bool hasScreenDoor;
+    double nextTrainIn;
+    bool isTrainArriving;
+    double doorOpenTimer;
+    static constexpr double DOOR_OPEN_DURATION = 30.0;
+    
+    PlatformNode(const std::string& id, int floor, POINT pos, int cap, double vel, double sens, const std::string& line, int dir, int waitCap, bool screenDoor, double trainIn) 
+        : AbstractNode(id, floor, pos, cap, vel, sens, 0.5, 1), lineName(line), direction(dir), waitCap(waitCap), hasScreenDoor(screenDoor), nextTrainIn(trainIn), isTrainArriving(false), doorOpenTimer(0.0), justArrivedEvent(false) {}
 
-   PlatformNode(const std::string& id, int floor, POINT pos, int cap, double vel, double sens,
-       const std::string& line, int dir, int waitCap, bool screenDoor, double trainIn)
-       : AbstractNode(id, floor, pos, cap, vel, sens, 0.5, 1),
-       lineName(line), direction(dir), waitCap(waitCap), hasScreenDoor(screenDoor),
-       nextTrainIn(trainIn), isTrainArriving(false), doorOpenTimer(0.0) {}
+    void update(double deltaTime) override {
+        handleTrainArrival(deltaTime);
+        AbstractNode::update(deltaTime);
+    }
 
-   void update(double deltaTime) override {
-       handleTrainArrival(deltaTime);
-       AbstractNode::update(deltaTime);
-   }
+    std::string getTypeName() const override { return "站台"; }
+    std::string getTypeCode() const override { return "PLATFORM"; }
+    void render() const override { std::cout << "站台: " << id << " (" << lineName << "), 人数: " << currentLoad << ", 拥堵: " << congestionFactor << ", 队列: " << waitingQueue.size() << std::endl; }
 
-   std::string getTypeName() const override { return "站台"; }
-   std::string getTypeCode() const override { return "PLATFORM"; }
-   void render() const override {
-       std::cout << "站台: " << id << " (" << lineName << "), 人数: " << currentLoad << ", 拥堵: " << congestionFactor
-           << ", 队列: " << waitingQueue.size() << std::endl;
-   }
+public: 
+    bool isTrainArrivingNow() const { return isTrainArriving; }
+    bool canAcceptTrainPassengers() const { return currentLoad < capacity * 0.9; }
+    
+    //获取刚到站的瞬间事件（仅触发一帧）
+    bool hasJustArrived() const { return justArrivedEvent; }
 
+    std::map<std::string, std::string> toProperties() const override {
+        auto props = AbstractNode::toProperties();
+        props["lineName"] = lineName;
+        props["direction"] = std::to_string(direction);
+        props["waitCap"] = std::to_string(waitCap);
+        props["hasScreenDoor"] = hasScreenDoor ? "1" : "0";
+        props["nextTrainIn"] = std::to_string(nextTrainIn);
+        return props;
+    }
+    void fromProperties(const std::map<std::string, std::string>& props) override {
+        AbstractNode::fromProperties(props);
+        auto get = [&](const std::string& key) -> std::string { auto it = props.find(key); return it != props.end() ? it->second : ""; };
+        if (!get("lineName").empty()) lineName = get("lineName");
+        if (!get("direction").empty()) direction = safeStoi(get("direction"));
+        if (!get("waitCap").empty()) waitCap = safeStoi(get("waitCap"));
+        if (!get("hasScreenDoor").empty()) hasScreenDoor = (get("hasScreenDoor") == "1");
+        if (!get("nextTrainIn").empty()) nextTrainIn = safeStod(get("nextTrainIn"));
+    }
 
 private:
-   void handleTrainArrival(double deltaTime) {
-       if (doorOpenTimer > 0) {
-           doorOpenTimer -= deltaTime;
-           isTrainArriving = true;
-       }
-       else {
-           nextTrainIn -= deltaTime;
-           if (nextTrainIn <= 0) {
-               isTrainArriving = true;
-               doorOpenTimer = DOOR_OPEN_DURATION;
-               nextTrainIn = 120.0;
-           }
-           else {
-               isTrainArriving = false;
-           }
-       }
-   }
+    bool justArrivedEvent; // 刚到站的事件标志
 
-public:
-   // [新增] 获取从列车下来的乘客数量
-   bool isTrainArrivingNow() const {
-       return isTrainArriving;
-   }
-
-   bool canAcceptTrainPassengers() const {
-       return currentLoad < capacity * 0.9;
-   }
-
-   std::map<std::string, std::string> toProperties() const override {
-       auto props = AbstractNode::toProperties();
-       props["lineName"] = lineName;
-       props["direction"] = std::to_string(direction);
-       props["waitCap"] = std::to_string(waitCap);
-       props["hasScreenDoor"] = hasScreenDoor ? "1" : "0";
-       props["nextTrainIn"] = std::to_string(nextTrainIn);
-       return props;
-   }
-
-   void fromProperties(const std::map<std::string, std::string>& props) override {
-       AbstractNode::fromProperties(props);
-       auto get = [&](const std::string& key) -> std::string {
-           auto it = props.find(key);
-           return it != props.end() ? it->second : "";
-           };
-
-       if (!get("lineName").empty()) lineName = get("lineName");
-       if (!get("direction").empty()) direction = safeStoi(get("direction"));
-       if (!get("waitCap").empty()) waitCap = safeStoi(get("waitCap"));
-       if (!get("hasScreenDoor").empty()) hasScreenDoor = (get("hasScreenDoor") == "1");
-       if (!get("nextTrainIn").empty()) nextTrainIn = safeStod(get("nextTrainIn"));
-   }
-
+    void handleTrainArrival(double deltaTime) {
+        justArrivedEvent = false; // 【关键】每帧默认重置为 false，确保只触发一次
+        if (doorOpenTimer > 0) {
+            doorOpenTimer -= deltaTime;
+            isTrainArriving = true;
+        } else {
+            nextTrainIn -= deltaTime;
+            if (nextTrainIn <= 0) {
+                isTrainArriving = true;
+                doorOpenTimer = DOOR_OPEN_DURATION;
+                nextTrainIn = 120.0;
+                justArrivedEvent = true; // 【关键】仅在到站这一瞬间，置为 true
+            } else {
+                isTrainArriving = false;
+            }
+        }
+    }
 };
 
-// ==========================================
-// 更新：修改 StairNode 类，移除 direction 属性
-// ==========================================
 class StairNode : public AbstractNode {
 public:
     int stepCount;
@@ -1457,6 +1440,7 @@ public:
 
    //waiting edge timer
    double waitTimer; 
+   double real_travel_timer; //真实通行时间计时器（新增）
 
    // [新增] 重新规划阈值和上次规划时间
    double lastReplanTime;
@@ -1477,7 +1461,7 @@ public:
        action_timer(0.0), state(from_train ? PassengerState::FROM_TRAIN : PassengerState::SPAWNED),
        exit_time(0.0), queue_start_time(0), queue_position(-1),
        current_path_index(0), current_grid_x(-1), current_grid_y(-1),
-       current_edge_from(-1), current_edge_to(-1), transit_timer(0.0), waitTimer(0.0), 
+       current_edge_from(-1), current_edge_to(-1), transit_timer(0.0), waitTimer(0.0), real_travel_timer(0.0), 
        collision_timer(0), isFromTrain(from_train), headingToPlatform(false), lastReplanTime(time), replanInterval(90.0),
        lastCongestionReplanTime(time),
        graphRef(graph) {}
@@ -1620,7 +1604,7 @@ std::string findNearestExit(const SubwayGraph& graph) const {
                }
                else if (action_timer > 10.0) {
                    state = PassengerState::LEFT;
-                   exit_time = spawn_time + action_timer;
+                   exit_time = spawn_time + real_travel_timer;
                    return false;
                }
            }
@@ -1659,6 +1643,7 @@ std::string findNearestExit(const SubwayGraph& graph) const {
 
        action_timer += dt;
        collision_timer += dt;
+       real_travel_timer += dt; //新增每帧累加真实时间
        bool is_currently_congested = (current_node_capacity > 0) &&
            (current_node_load * 1.0 / current_node_capacity > 0.8);
 
@@ -1694,7 +1679,7 @@ std::string findNearestExit(const SubwayGraph& graph) const {
                        advancePath();
                        if (current_path_index >= path.size()) {
                            state = PassengerState::LEFT;
-                           exit_time = spawn_time + action_timer;
+                           exit_time = spawn_time + real_travel_timer;
                        }
                        else {
                            target_node_id = path[current_path_index];
@@ -1755,7 +1740,7 @@ std::string findNearestExit(const SubwayGraph& graph) const {
                        current_grid_y = -1;
                    }
                    state = PassengerState::LEFT;
-                   exit_time = spawn_time + action_timer;
+                   exit_time = spawn_time + real_travel_timer;
                    return true;
                }
            }
@@ -1770,7 +1755,7 @@ std::string findNearestExit(const SubwayGraph& graph) const {
                        current_node->releaseCell(current_grid_x, current_grid_y);
                    }
                    state = PassengerState::LEFT;
-                   exit_time = spawn_time + action_timer;
+                   exit_time = spawn_time + real_travel_timer;
                }
            }
            return true;
@@ -1820,26 +1805,26 @@ std::string findNearestExit(const SubwayGraph& graph) const {
                    transit_timer = 0.0;
                    state = PassengerState::PATH_FOLLOWING;
                }
-               else {
-                    //修改4.25
-                   if (transit_timer > edge->getPassThroughTime() + 30.0) {
-                        Edge* mutableEdge = graph.getEdgeMutable(current_edge_from, current_edge_to);
-                        if (mutableEdge) mutableEdge->removeOccupant();  // 释放边
+            //    else {
+            //         //修改4.25
+            //        if (transit_timer > edge->getPassThroughTime() + 30.0) {
+            //             Edge* mutableEdge = graph.getEdgeMutable(current_edge_from, current_edge_to);
+            //             if (mutableEdge) mutableEdge->removeOccupant();  // 释放边
                 
-                        // 回退到起点节点
-                        current_node_id = current_edge_from;
-                        current_edge_from = -1;
-                        current_edge_to = -1;
-                        transit_timer = 0.0;
+            //             // 回退到起点节点
+            //             current_node_id = current_edge_from;
+            //             current_edge_from = -1;
+            //             current_edge_to = -1;
+            //             transit_timer = 0.0;
                 
-                        // 重新占据起点的网格
-                        AbstractNode* fromNode = getNode(current_node_id);
-                        if (fromNode) fromNode->occupyCell(1, 1, id);
-                        current_grid_x = 1; current_grid_y = 1;
+            //             // 重新占据起点的网格
+            //             AbstractNode* fromNode = getNode(current_node_id);
+            //             if (fromNode) fromNode->occupyCell(1, 1, id);
+            //             current_grid_x = 1; current_grid_y = 1;
                 
-                        state = PassengerState::PATH_FOLLOWING;  // 回到可重规划的状态
-                    }
-               }
+            //             state = PassengerState::PATH_FOLLOWING;  // 回到可重规划的状态
+            //         }
+            //    }
            }
            return true;
        }
@@ -1847,39 +1832,7 @@ std::string findNearestExit(const SubwayGraph& graph) const {
        // 处理WAITING_EDGE状态：等待边/目标节点可用
        //修改4.25
        if (state == PassengerState::WAITING_EDGE) {
-        waitTimer += dt; // 累加等待时间
-    
-        // 检查是否恢复正常通行
-        bool canProceed = false;
-        if (!path.empty() && current_path_index < static_cast<int>(path.size()) - 1) {
-            int next_node_id = path[current_path_index + 1];
-            const Edge* nextEdge = graph.getEdge(current_node_id, next_node_id);
-            AbstractNode* nextNode = getNode(next_node_id);
-            if (nextEdge && nextEdge->tryEnterEdge() && (!nextNode || nextNode->canEnter())) {
-                canProceed = true;
-            }
-        } else {
-            canProceed = true; // 路径异常时直接跳出
-        }
-
-        if (canProceed) {
-            // 恢复正常，尝试进入边
-            state = PassengerState::PATH_FOLLOWING;
-            waitTimer = 0.0; // 重置计时器
-        } 
-        //超时兜底机制：等了太久就放弃这条边，触发重新规划绕行
-        else if (waitTimer > 60.0) {
-            if (needsReplanning(current_node, graph)) {
-                std::string currentId = graph.getId(current_node_id);
-                std::string targetId = graph.getId(target_node_id);
-                replanPath(currentId, targetId, graph);
-            }
-            // 无论是否成功重规划，都回到 PATH_FOLLOWING 状态尝试新路径
-            state = PassengerState::PATH_FOLLOWING;
-            waitTimer = 0.0; // 重置计时器
-        }
-    
-        return true;
+            return true;
         }
 
        if (state == PassengerState::IN_QUEUE) {
@@ -1919,11 +1872,11 @@ std::string findNearestExit(const SubwayGraph& graph) const {
                                    state = PassengerState::IN_TRANSIT;
                                }
                                else {
-                                   state = PassengerState::WAITING_EDGE;
+                                   state = PassengerState::PATH_FOLLOWING;
                                }
                            }
                            else {
-                               state = PassengerState::WAITING_EDGE;
+                               state = PassengerState::PATH_FOLLOWING;
                            }
                        }
                        else {
@@ -1931,7 +1884,7 @@ std::string findNearestExit(const SubwayGraph& graph) const {
                                current_node->releaseCell(current_grid_x, current_grid_y);
                            }
                            state = PassengerState::LEFT;
-                           exit_time = spawn_time + action_timer;
+                           exit_time = spawn_time + real_travel_timer;
                        }
                    }
                }
@@ -1948,8 +1901,7 @@ std::string findNearestExit(const SubwayGraph& graph) const {
            replansThisFrame++;
        }
 
-       // ==========================================
-       // 【核心重构】宏观拓扑转移逻辑（优先级最高）
+       
        // 只要处于PATH_FOLLOWING状态且路径有效，就尝试转移
        // ==========================================
        if (state == PassengerState::PATH_FOLLOWING && !path.empty()) {
@@ -1969,7 +1921,7 @@ std::string findNearestExit(const SubwayGraph& graph) const {
                         advancePath();
                         if (current_path_index >= static_cast<int>(path.size())) {
                             state = PassengerState::LEFT;
-                            exit_time = spawn_time + action_timer;
+                            exit_time = spawn_time + real_travel_timer;
                             return false;
                         }
                     } else {
@@ -1988,7 +1940,7 @@ std::string findNearestExit(const SubwayGraph& graph) const {
                    current_grid_x = -1; current_grid_y = -1;
                }
                state = PassengerState::LEFT;
-               exit_time = spawn_time + action_timer;
+               exit_time = spawn_time + real_travel_timer;
                return false;
            }
 
@@ -1999,97 +1951,92 @@ std::string findNearestExit(const SubwayGraph& graph) const {
            }
 
            // 3. 【关键修复】随时尝试进入下一条边（打破死循环的唯一出路）
-           if (current_path_index < static_cast<int>(path.size()) - 1) {
-               int next_node_id = path[current_path_index + 1];
-               const Edge* nextEdge = graph.getEdge(current_node_id, next_node_id);
-               if (!nextEdge) { state = PassengerState::REPATHING; return true; }
-               AbstractNode* nextNode = getNode(next_node_id);
-               if (!nextEdge->tryEnterEdge() || (nextNode && !nextNode->canEnter())) {
-                   state = PassengerState::WAITING_EDGE;
-               } else {
-                   if (current_grid_x >= 0 && current_grid_y >= 0)
-                       current_node->releaseCell(current_grid_x, current_grid_y);
-                   Edge* mutableEdge = graph.getEdgeMutable(current_node_id, next_node_id);
-                   if (mutableEdge) mutableEdge->addOccupant();
-                   current_edge_from = current_node_id;
-                   current_edge_to = next_node_id;
-                   transit_timer = 0.0;
-                   current_grid_x = -1;
-                   current_grid_y = -1;
-                   state = PassengerState::IN_TRANSIT;
-                   return true;
-               }
-           } else {
-               // 路径终点，直接离场
-               if (current_grid_x >= 0 && current_grid_y >= 0) {
-                   current_node->releaseCell(current_grid_x, current_grid_y);
-                   current_grid_x = -1; current_grid_y = -1;
-               }
-               state = PassengerState::LEFT; exit_time = spawn_time + action_timer; return false;
-           }
+            if (current_path_index < static_cast<int>(path.size()) - 1) {
+                int next_node_id = path[current_path_index + 1];
+                const Edge* nextEdge = graph.getEdge(current_node_id, next_node_id);
+                if (!nextEdge) {
+                    state = PassengerState::REPATHING;
+                    return true;
+                }
+                AbstractNode* nextNode = getNode(next_node_id);
+                if (!nextEdge->tryEnterEdge() || (nextNode && !nextNode->canEnter())) {
+                    // 【根治修改】：不再切换状态为 WAITING_EDGE！
+                    // 原地累加等待时间，并将超时重规划逻辑内聚在这里，然后故意不 return，让代码自然穿透到下方的微观移动逻辑！
+                    waitTimer += dt;
+                    if (waitTimer > 60.0) {
+                        if (needsReplanning(current_node, graph)) {
+                            std::string currentId = graph.getId(current_node_id);
+                            std::string targetId = graph.getId(target_node_id);
+                            replanPath(currentId, targetId, graph);
+                        }
+                        waitTimer = 0.0;
+                    }
+                    // 注意这里绝对不能写 return，必须穿透！
+                } else {
+                    if (current_grid_x >= 0 && current_grid_y >= 0) current_node->releaseCell(current_grid_x, current_grid_y);
+                    Edge* mutableEdge = graph.getEdgeMutable(current_node_id, next_node_id);
+                    if (mutableEdge) mutableEdge->addOccupant();
+                    current_edge_from = current_node_id;
+                    current_edge_to = next_node_id;
+                    transit_timer = 0.0;
+                    current_grid_x = -1;
+                    current_grid_y = -1;
+                    state = PassengerState::IN_TRANSIT;
+                    waitTimer = 0.0; // 成功进边，重置等待计时器
+                    return true;
+                }
+            } else {
+                if (current_grid_x >= 0 && current_grid_y >= 0) {
+                    current_node->releaseCell(current_grid_x, current_grid_y);
+                    current_grid_x = -1;
+                    current_grid_y = -1;
+                }
+                state = PassengerState::LEFT;
+                exit_time = spawn_time + real_travel_timer;
+                return false;
+            }
        }
 
-       // 碰撞策略核心：在节点内部移动（降级为等待进边时的防重叠行为）
-       if (state == PassengerState::PATH_FOLLOWING && current_node
-           && current_grid_x >= 0 && current_grid_y >= 0) {
+        //碰撞策略核心：在节点内部移动（降级为等待进边时的防重叠行为）
+        //上方已经允许穿透，所有被边阻断的节点（HALL、STAIR甚至安检门口）都会掉到这里
+        //使用轻量级随机游走，彻底取代原本极其消耗性能且容易死锁的BFS逻辑
+        if (state == PassengerState::PATH_FOLLOWING && current_node && current_grid_x >= 0 && current_grid_y >= 0) {
+            collision_timer += dt; // 累加碰撞等待时间
+        
+            // 每隔 0.5 秒尝试走一步（避免每帧计算浪费性能）
+            if (collision_timer >= 0.5) {
+                const int dx[] = { 0, 0, 1, -1 };
+                const int dy[] = { 1, -1, 0, 0 };
+            
+                // 随机打乱四个移动方向
+                int dirs[4] = {0, 1, 2, 3};
 
-           double moveSpeed = current_node->getBaseVelocity() * attributes.speed;
-           moveSpeed *= (1.0 - current_node->getCongestionFactor() * 0.8);
-           double cellsToMove = moveSpeed * dt / current_node->getCellSize();
-           int maxSteps = std::max(1, static_cast<int>(std::floor(cellsToMove)));
+                //随机打乱四个移动方向，避免死锁
+                static thread_local std::mt19937 local_rng(std::random_device{}());
+                std::shuffle(dirs, dirs + 4, local_rng);
+            
+                bool moved = false;
+                for (int i = 0; i < 4; ++i) {
+                    int nx = current_grid_x + dx[dirs[i]];
+                    int ny = current_grid_y + dy[dirs[i]];
+                
+                    // 只要这个方向不是墙、不是人，就走过去
+                    if (!current_node->isCellObstacle(nx, ny) && !current_node->isCellOccupied(nx, ny)) {
+                        current_node->moveCell(current_grid_x, current_grid_y, nx, ny, id);
+                        current_grid_x = nx;
+                        current_grid_y = ny;
+                        moved = true;
+                        break; // 走通一步就停下，等下个 0.5 秒
+                    }
+                }   
+            
+                if (moved) {
+                    collision_timer = 0.0; // 成功移动，清零计时器
+                }
+                //如果四面被死死包围，moved为false，collision_timer会继续累加，但永远不会触发死循环BFS
+            }
+        }
 
-           for (int step = 0; step < maxSteps; ++step) {
-               int target_grid_x = current_node->getGridWidth() / 2;
-               int target_grid_y = current_node->getGridHeight() / 2;
-
-               auto curr = getDirectionToTarget(current_node, target_grid_x, target_grid_y);
-               int dir_x = curr.first;
-               int dir_y = curr.second;
-               int next_x = current_grid_x + dir_x;
-               int next_y = current_grid_y + dir_y;
-
-               bool collision_occurred = false;
-               if (current_node->isCellObstacle(next_x, next_y)) {
-                   collision_occurred = true;
-               }
-               else if (current_node->isCellOccupied(next_x, next_y)) {
-                   collision_occurred = true;
-               }
-
-               if (collision_occurred) {
-                   if (collision_timer < 0.5) {
-                       state = PassengerState::COLLIDING;
-                       break;
-                   }
-                   auto local_path = findLocalPath(current_node, target_grid_x, target_grid_y);
-                   if (!local_path.empty() && local_path.size() > 1) {
-                       auto new_node = local_path[1];
-                       int new_x = new_node.first;
-                       int new_y = new_node.second;
-                       if (current_node->moveCell(current_grid_x, current_grid_y, new_x, new_y, id)) {
-                           current_grid_x = new_x;
-                           current_grid_y = new_y;
-                           collision_timer = 0;
-                       }
-                       else {
-                           state = PassengerState::COLLIDING;
-                           break;
-                       }
-                   }
-                   else {
-                       state = PassengerState::COLLIDING;
-                       break;
-                   }
-               }
-               else {
-                   if (current_node->moveCell(current_grid_x, current_grid_y, next_x, next_y, id)) {
-                       current_grid_x = next_x;
-                       current_grid_y = next_y;
-                       collision_timer = 0;
-                   }
-               }
-           }
-       }
 
        return true;
    }
@@ -2360,51 +2307,70 @@ public:
        }
    }
    // [新增] 生成从列车下车的乘客
-   std::vector<Passenger> generateTrainPassengers(double dt, int remaining = 9999) {
-       std::vector<Passenger> train_passengers;
+    std::vector<Passenger> generateTrainPassengers(double dt, int remaining = 9999) {
+        std::vector<Passenger> train_passengers;
+        if (remaining <= 0) return train_passengers;
+        
+        for (const auto& platformId : platformIds) {
+            if (remaining <= 0) break;
+            PlatformNode* platform = dynamic_cast<PlatformNode*>(graphRef.getNode(platformId));
+            
+            // 【关键修复1】：从持续30秒的"门是否开着"改为"是否是刚到站这一帧"
+            if (platform && platform->hasJustArrived() && platform->canAcceptTrainPassengers()) {
+                
+                // 【关键修复2】：一列车合理下车人数（比如40人），而不是每秒8人持续喷30秒
+                int numPassengers = std::min(40, remaining); 
+                
+                for (int i = 0; i < numPassengers; ++i) {
+                    trainPassengerCounter++;
+                    total_generated++;
+                    std::string exitId = findRandomExit();
+                    if (!exitId.empty()) {
+                        double currentAbsTime = clock.get_total_seconds();
+                        Passenger p(trainPassengerCounter, graphRef.getIndex(platformId), graphRef.getIndex(exitId), generateDefaultAttributes(), currentAbsTime, PathStrategy::SHORTEST_TIME, true, &graphRef);
+                        std::vector<int> path = graphRef.findPath(platformId, exitId, PathStrategy::SHORTEST_TIME);
+                        if (!path.empty()) {
+                            p.setPath(path);
+                            train_passengers.push_back(p);
+                            remaining--;
+                        } else {
+                            trainPassengerCounter--;
+                            total_generated--;
+                        }
+                    } else {
+                        trainPassengerCounter--;
+                        total_generated--;
+                    }
+                }
+            }
+        }
+        
+                //【关键修复3】：补全列车下车乘客的统计逻辑，防止数据凭空消失
+        int trainCount = static_cast<int>(train_passengers.size());
+        if (trainCount > 0) {
+            // 【新增】获取当前所处的时间段，将列车乘客也归入对应时段档案
+            const CrowdProfile* currentProfile = get_current_profile();
+            if (currentProfile) {
+                stats.profile_counts[currentProfile->name] += trainCount;
+            }
 
-       if (remaining <= 0) return train_passengers;
+            if (clock.is_weekday()) {
+                stats.weekday_total += trainCount;
+                // 【修复】保持与入口进站完全一致的高峰/平峰判定逻辑 (rate >= 4.0 视为高峰)
+                if (currentProfile && currentProfile->arrival_rate >= 4.0) {
+                    stats.peak_total += trainCount; 
+                } else {
+                    stats.offpeak_total += trainCount;
+                }
+            } else {
+                stats.weekend_total += trainCount;
+                stats.offpeak_total += trainCount; 
+            }
+        }
 
-       for (const auto& platformId : platformIds) {
-           if (remaining <= 0) break;
 
-           PlatformNode* platform = dynamic_cast<PlatformNode*>(graphRef.getNode(platformId));
-           if (platform && platform->isTrainArrivingNow() && platform->canAcceptTrainPassengers()) {
-               int numPassengers = std::min(8, remaining);
-               for (int i = 0; i < numPassengers; ++i) {
-                   trainPassengerCounter++;
-                   total_generated++;
-
-                   std::string exitId = findRandomExit();
-                   if (!exitId.empty()) {
-                       double currentAbsTime = clock.get_total_seconds();
-                       Passenger p(trainPassengerCounter,
-                           graphRef.getIndex(platformId),
-                           graphRef.getIndex(exitId),
-                           generateDefaultAttributes(),
-                           currentAbsTime,
-                           PathStrategy::SHORTEST_TIME,
-                           true, &graphRef);
-
-                       std::vector<int> path = graphRef.findPath(platformId, exitId, PathStrategy::SHORTEST_TIME);
-                       if (!path.empty()) {
-                           p.setPath(path);
-                           train_passengers.push_back(p);
-                           remaining--;
-                       } else {
-                           trainPassengerCounter--;
-                           total_generated--;
-                       }
-                   } else {
-                       trainPassengerCounter--;
-                       total_generated--;
-                   }
-               }
-           }
-       }
-
-       return train_passengers;
-   }
+        return train_passengers;
+    }
    // [新增] 查找随机出口
    std::string findRandomExit() const {
        std::vector<std::string> exitIds;
@@ -2476,7 +2442,7 @@ public:
        weekday_offpeak.end_second = TimeSlot::time_to_seconds(17, 0);
        weekday_offpeak.day_mask = TimeSlot::weekday_mask();
        weekday_offpeak.profile.name = "工作日平峰";
-       weekday_offpeak.profile.arrival_rate = 3.0;
+       weekday_offpeak.profile.arrival_rate = 5.0;
        weekday_offpeak.profile.familiarity_min = 0.6f;
        weekday_offpeak.profile.familiarity_max = 0.9f;
        weekday_offpeak.profile.patience_min = 0.6f;
@@ -2491,7 +2457,7 @@ public:
        weekend_peak.end_second = TimeSlot::time_to_seconds(20, 0);
        weekend_peak.day_mask = TimeSlot::weekend_mask();
        weekend_peak.profile.name = "周末高峰";
-       weekend_peak.profile.arrival_rate = 4.0;
+       weekend_peak.profile.arrival_rate = 5.0;
        weekend_peak.profile.familiarity_min = 0.3f;
        weekend_peak.profile.familiarity_max = 0.7f;
        weekend_peak.profile.patience_min = 0.7f;
@@ -2506,7 +2472,7 @@ public:
        default_slot.end_second = 86400;
        default_slot.day_mask = TimeSlot::daily_mask();
        default_slot.profile.name = "默认平峰";
-       default_slot.profile.arrival_rate = 2.0;
+       default_slot.profile.arrival_rate = 4.0;
        schedule.push_back(default_slot);
    }
 
@@ -2539,6 +2505,7 @@ public:
        count = std::min(count, remaining);
 
        if (count > 0) {
+           size_t initial_size = new_passengers.size(); //新增记录进入生成循环前的初始数量
            new_passengers.reserve(count);
 
            std::uniform_real_distribution<float> speed_dist(
@@ -2631,16 +2598,18 @@ public:
             }
            }
 
-           // Update stats
-           stats.profile_counts[profile->name] += count;
-           if (clock.is_weekday()) {
-               stats.weekday_total += count;
-               if (rate >= 2.0) stats.peak_total += count;
-               else stats.offpeak_total += count;
-           }
-           else {
-               stats.weekend_total += count;
-           }
+            // Update stats（修复：使用实际成功加入的数量，而不是原始的count，防止路径失败被踢掉的乘客变成幽灵数据）
+            int actual_count = static_cast<int>(new_passengers.size()) - initial_size;
+            if (actual_count > 0) {
+                stats.profile_counts[profile->name] += actual_count;
+                if (clock.is_weekday()) {
+                    stats.weekday_total += actual_count;
+                    if (rate >= 4.0) stats.peak_total += actual_count;
+                    else stats.offpeak_total += actual_count;
+                } else {
+                    stats.weekend_total += actual_count;
+                }
+            }
        }
 
        return new_passengers;
