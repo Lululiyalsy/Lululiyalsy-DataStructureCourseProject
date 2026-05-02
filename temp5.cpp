@@ -1916,22 +1916,19 @@ public:
                 // 调用最短距离策略验证是否可达，并获取路径
                 std::vector<int> path = graph.findPath(graph.getId(current_node_id), exitId, PathStrategy::SHORTEST_DISTANCE);
 
-                if (!path.empty())
-                {
-                    // 累加路径上所有边的物理长度
+                if (!path.empty()) {
                     double dist = 0.0;
-                    for (size_t i = 0; i < path.size() - 1; ++i)
-                    {
-                        const Edge *e = graph.getEdge(path[i], path[i + 1]);
-                        if (e)
-                            dist += e->getLength();
+                    for (size_t i = 0; i < path.size() - 1; ++i) {
+                        const Edge* e = graph.getEdge(path[i], path[i+1]);
+                        if (e) dist += e->getLength();
                     }
-                    if (dist < minDist)
-                    {
+                    // 【不要加任何 jitter，保持纯粹的物理距离判断】
+                    if (dist < minDist) {
                         minDist = dist;
                         nearestExitId = exitId;
                     }
                 }
+
             }
         }
         return nearestExitId;
@@ -1991,23 +1988,24 @@ public:
             state = PassengerState::ON_PLATFORM;
         }
 
-        if (state == PassengerState::ON_PLATFORM)
-        {
-            if (current_node && current_node->getTypeCode() == "PLATFORM")
-            {
+        if (state == PassengerState::ON_PLATFORM) {
+            if (current_node && current_node->getTypeCode() == "PLATFORM") {
+            // 【关键修复】如果生成时已经给了随机路径，直接去走，绝对不要重新算覆盖！
+            if (!path.empty() && current_path_index < static_cast<int>(path.size())) {
+                state = PassengerState::PATH_FOLLOWING;
+            } else {
+                // 只有在真没路径的情况下，才去寻找出口
                 std::string exitId = findNearestExit(graph);
-                if (!exitId.empty())
-                {
-                    std::vector<int> newPath = graph.findPath(
-                        graph.getId(current_node_id), exitId, pathStrategy);
-                    if (!newPath.empty())
-                    {
+                if (!exitId.empty()) {
+                    std::vector<int> newPath = graph.findPath( graph.getId(current_node_id), exitId, pathStrategy);
+                    if (!newPath.empty()) {
                         setPath(newPath);
                         state = PassengerState::PATH_FOLLOWING;
                     }
                 }
             }
         }
+    }
 
         // [修改] 原有逻辑继续执行
         if (state == PassengerState::COLLIDING)
@@ -2186,9 +2184,9 @@ public:
                     // 到达目标节点
                     current_node_id = current_edge_to;
                     current_path_index++;
-                    target_node_id = (current_path_index + 1 < static_cast<int>(path.size()))
-                                         ? path[current_path_index + 1]
-                                         : path[current_path_index];
+                    // target_node_id = (current_path_index + 1 < static_cast<int>(path.size()))
+                    //                      ? path[current_path_index + 1]
+                    //                      : path[current_path_index];
 
                     // 在目标节点分配网格
                     bool assigned = false;
@@ -2310,53 +2308,32 @@ public:
                         }
                         else
                         {
-                            // 路径终点，重新规划路径
-                            if (current_node->getTypeCode() != "EXIT" && current_node->getTypeCode() != "PLATFORM")
-                            {
-                                // 不是出口或站台，重新规划路径
-                                std::string currentId = graph.getId(current_node_id);
-                                std::string newTargetId = findAppropriateTarget(graph);
-                                if (!newTargetId.empty())
-                                {
-                                    std::vector<int> newPath = graph.findPath(
-                                        graph.getId(current_node_id), newTargetId, pathStrategy);
-                                    if (!newPath.empty())
-                                    {
-                                        setPath(newPath);
-                                        state = PassengerState::PATH_FOLLOWING;
-                                    }
-                                    else
-                                    {
-                                        // 无法规划新路径，离开系统
-                                        if (current_grid_x >= 0 && current_grid_y >= 0)
-                                        {
-                                            current_node->releaseCell(current_grid_x, current_grid_y);
-                                        }
-                                        state = PassengerState::LEFT;
-                                        exit_time = spawn_time + real_travel_timer;
-                                    }
-                                }
-                                else
-                                {
-                                    // 没有合适的目标，离开系统
-                                    if (current_grid_x >= 0 && current_grid_y >= 0)
-                                    {
-                                        current_node->releaseCell(current_grid_x, current_grid_y);
-                                    }
-                                    state = PassengerState::LEFT;
-                                    exit_time = spawn_time + real_travel_timer;
-                                }
+                            //修改5.2
+                            // 路径意外走完，尝试用【原来的目标】恢复，绝不主动帮他换目标
+                            std::string currentId = graph.getId(current_node_id);
+                            std::string targetId = graph.getId(target_node_id);
+                        
+                            // 如果原来的目标无效，再随便找个出口兜底
+                            if (targetId.empty() || targetId == currentId) {
+                                targetId = findNearestExit(graph);
                             }
-                            else
-                            {
-                                // 到达出口或站台，离开系统
-                                if (current_grid_x >= 0 && current_grid_y >= 0)
-                                {
-                                    current_node->releaseCell(current_grid_x, current_grid_y);
-                                }
+                        
+                        if (!targetId.empty() && targetId != currentId) {
+                            std::vector<int> newPath = graph.findPath(currentId, targetId, pathStrategy);
+                            if (!newPath.empty()) {
+                                setPath(newPath);
+                                state = PassengerState::PATH_FOLLOWING;
+                            } else {
+                                if (current_grid_x >= 0 && current_grid_y >= 0) current_node->releaseCell(current_grid_x, current_grid_y);
                                 state = PassengerState::LEFT;
                                 exit_time = spawn_time + real_travel_timer;
                             }
+                        } else {
+                            if (current_grid_x >= 0 && current_grid_y >= 0) current_node->releaseCell(current_grid_x, current_grid_y);
+                            state = PassengerState::LEFT;
+                            exit_time = spawn_time + real_travel_timer;
+                        }
+                    }
                         }
                     }
                 }

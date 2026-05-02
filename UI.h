@@ -6,7 +6,7 @@
 #include <graphics.h>
 
 const int WINDOW_WIDTH = 1500;
-const int WINDOW_HEIGHT = 1500;
+const int WINDOW_HEIGHT = 1000;
 
 enum class AppState {
     Welcome,
