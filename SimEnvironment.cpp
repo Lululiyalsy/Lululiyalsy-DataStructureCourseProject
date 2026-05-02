@@ -72,7 +72,7 @@ std::vector<Passenger> PassengerGenerator::generateTrainPassengers(double dt, in
                 for (int i = 0; i < numPassengers; ++i) {
                     trainPassengerCounter++;
                     total_generated++;
-                    std::string exitId = findRandomExit();
+                    std::string exitId = findRandomExit(platform->getFloor());
                     if (!exitId.empty()) {
                         double currentAbsTime = clock.get_total_seconds();
                         Passenger p(trainPassengerCounter, graphRef.getIndex(platformId), graphRef.getIndex(exitId), generateDefaultAttributes(), currentAbsTime, PathStrategy::SHORTEST_TIME, true, &graphRef);
@@ -120,14 +120,25 @@ std::vector<Passenger> PassengerGenerator::generateTrainPassengers(double dt, in
         return train_passengers;
     }
 
-std::string PassengerGenerator::findRandomExit() const {
-    std::vector<std::string> exitIds;
+std::string PassengerGenerator::findRandomExit(int floor) const {
+    std::vector<std::string> sameFloorExits;
+    std::vector<std::string> otherFloorExits;
     for (const auto& node : graphRef.getAllNodes()) {
-        if (node->getTypeCode() == "EXIT") exitIds.push_back(node->getId());
+        if (node->getTypeCode() == "EXIT") {
+            if (node->getFloor() == floor) {
+                sameFloorExits.push_back(node->getId());
+            } else {
+                otherFloorExits.push_back(node->getId());
+            }
+        }
     }
-    if (!exitIds.empty()) {
-        std::uniform_int_distribution<> dist(0, exitIds.size() - 1);
-        return exitIds[dist(rng)];
+    if (!sameFloorExits.empty()) {
+        std::uniform_int_distribution<> dist(0, sameFloorExits.size() - 1);
+        return sameFloorExits[dist(rng)];
+    }
+    if (!otherFloorExits.empty()) {
+        std::uniform_int_distribution<> dist(0, otherFloorExits.size() - 1);
+        return otherFloorExits[dist(rng)];
     }
     return "";
 }
@@ -283,11 +294,50 @@ std::vector<Passenger> PassengerGenerator::generateEntryPassengers(double dt, in
                std::string startId = hallIds[hallDist(rng)];
                std::string endId;
                bool headingToPlatform = direction_dist(rng) && !platformIds.empty();
+
+               // 获取起始节点楼层
+               int startFloor = 1;
+               AbstractNode* startNode = graphRef.getNode(startId);
+               if (startNode) {
+                   startFloor = startNode->getFloor();
+               }
+
                if (headingToPlatform) {
-                   endId = platformIds[platformDist(rng)];
+                   // 选择目标站台时，优先选择同楼层的站台
+                   std::vector<std::string> sameFloorPlatforms;
+                   std::vector<std::string> otherFloorPlatforms;
+                   for (const std::string& pid : platformIds) {
+                       AbstractNode* pn = graphRef.getNode(pid);
+                       if (pn && pn->getFloor() == startFloor) {
+                           sameFloorPlatforms.push_back(pid);
+                       } else {
+                           otherFloorPlatforms.push_back(pid);
+                       }
+                   }
+                   std::vector<std::string>& selectedPlatforms = sameFloorPlatforms.empty() ? otherFloorPlatforms : sameFloorPlatforms;
+                   std::uniform_int_distribution<> selectedPlatformDist(0, selectedPlatforms.size() - 1);
+                   endId = selectedPlatforms[selectedPlatformDist(rng)];
                }
                else if (!exitIds.empty()) {
-                   endId = exitIds[exitDist(rng)];
+                   // 选择出口时，优先选择同楼层或连接楼层的出口
+                   std::vector<std::string> preferredExits;
+                   std::vector<std::string> otherExits;
+                   for (const std::string& eid : exitIds) {
+                       AbstractNode* en = graphRef.getNode(eid);
+                       if (en) {
+                           int exitFloor = en->getFloor();
+                           // 1层的乘客可以去1层或-1层的出口
+                           if ((startFloor == 1 && (exitFloor == 1 || exitFloor == -1)) ||
+                               (startFloor == 2 && exitFloor == 2)) {
+                               preferredExits.push_back(eid);
+                           } else {
+                               otherExits.push_back(eid);
+                           }
+                       }
+                   }
+                   std::vector<std::string>& selectedExits = preferredExits.empty() ? otherExits : preferredExits;
+                   std::uniform_int_distribution<> selectedExitDist(0, selectedExits.size() - 1);
+                   endId = selectedExits[selectedExitDist(rng)];
                }
                else {
                    endId = platformIds[platformDist(rng)];
@@ -346,6 +396,7 @@ std::vector<Passenger> PassengerGenerator::generate(double dt, int currentOnline
 }
 
 void PassengerGenerator::print_stats() const {
+    /*
     std::cout << "\n========== \u5ba2\u6d41\u751f\u6210\u7edf\u8ba1 ==========" << std::endl;
     std::cout << "\u603b\u751f\u6210\u4eba\u6570\uff1a" << total_generated << " (\u5165\u53e3\u8fdb\u7ad9: " << (total_generated - trainPassengerCounter) << ", \u5217\u8f66\u4e0b\u8f66: " << trainPassengerCounter << ")" << std::endl;
     std::cout << "\u5de5\u4f5c\u65e5\u5ba2\u6d41\uff1a" << stats.weekday_total << std::endl;
@@ -355,4 +406,5 @@ void PassengerGenerator::print_stats() const {
     std::cout << "\n\u5404\u65f6\u6bb5\u5206\u5e03\uff1a" << std::endl;
     for (const auto& pair : stats.profile_counts) std::cout << "  " << pair.first << ": " << pair.second << " \u4eba" << std::endl;
     std::cout << "================================" << std::endl;
+    */
 }

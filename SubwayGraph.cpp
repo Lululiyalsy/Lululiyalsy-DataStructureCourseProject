@@ -103,7 +103,10 @@ std::vector<int> SubwayGraph::shortestTimePath(int startIdx, int endIdx) const {
             double edgeCongestionPenalty = edge.getCongestionLevel() * 5.0;
             double nodeTime = nodes_[v] ? nodes_[v]->getPassThroughTime() : 1.0;
             double nodeCongestionPenalty = nodes_[v] ? nodes_[v]->getCongestionFactor() * 3.0 : 0.0;
-            double weight = edgeTime + edgeCongestionPenalty + nodeTime + nodeCongestionPenalty;
+            // 加入基于节点ID的微小扰动，打破羊群效应
+            size_t hash_seed = std::hash<std::string>{}(indexToId_[u]) ^ (std::hash<std::string>{}(indexToId_[v]) << 1);
+            double jitter = (static_cast<double>(hash_seed % 100) / 100.0) * 0.5;
+            double weight = edgeTime + edgeCongestionPenalty + nodeTime + nodeCongestionPenalty + jitter;
             if (pathDist_[u] + weight < pathDist_[v]) {
                 pathDist_[v] = pathDist_[u] + weight;
                 pathPrev_[v] = u;
@@ -156,6 +159,10 @@ std::vector<int> SubwayGraph::multiObjectivePath(int startIdx, int endIdx) const
                 }
             }
             double weight = 0.3 * distanceWeight + 0.4 * timeWeight + 0.3 * congestionWeight + transitionPenalty;
+            // 加入基于节点ID的微小扰动，打破羊群效应
+            size_t hash_seed = std::hash<std::string>{}(indexToId_[u]) ^ (std::hash<std::string>{}(indexToId_[v]) << 1);
+            double jitter = (static_cast<double>(hash_seed % 100) / 100.0) * 0.5;
+            weight += jitter;
             if (pathDist_[u] + weight < pathDist_[v]) {
                 pathDist_[v] = pathDist_[u] + weight;
                 pathPrev_[v] = u;

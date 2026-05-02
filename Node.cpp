@@ -3,7 +3,7 @@
 #include <iostream>
 #include <cmath>
 
-AbstractNode::AbstractNode(const std::string& nodeId, int nodeFloor, POINT position, int cap,
+AbstractNode::AbstractNode(const std::string& nodeId, int nodeFloor, MYPOINT position, int cap,
     double vel, double sensitivity, double sRate, int maxServ)
     : id(nodeId), floor(nodeFloor), pos(position), capacity(cap), currentLoad(0),
     baseVelocity(vel), congestionFactor(0.0), congestionSensitivity(sensitivity),
@@ -272,7 +272,7 @@ std::map<std::string, std::string> StairNode::toProperties() const {
 std::unique_ptr<AbstractNode> NodeFactory::createNode(const std::string& typeCode, const std::map<std::string, std::string>& props) {
     std::string id = props.at("id");
     int floor = safeStoi(props.at("floor"));
-    POINT pos = { safeStoi(props.at("x")), safeStoi(props.at("y")) };
+    MYPOINT pos = { safeStoi(props.at("x")), safeStoi(props.at("y")) };
     int cap = safeStoi(props.at("capacity"));
     double vel = safeStod(props.at("baseVelocity"));
     double sens = safeStod(props.at("sensitivity"));

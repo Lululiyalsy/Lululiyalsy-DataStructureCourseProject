@@ -92,7 +92,7 @@ public:
 
     void updateStationLayout();
     std::vector<Passenger> generateTrainPassengers(double dt, int remaining = 9999); // 生成列车下车乘客
-    std::string findRandomExit() const; // 随机选择出口
+    std::string findRandomExit(int floor = 0) const; // 随机选择出口，优先同楼层
     PassengerAttributes generateDefaultAttributes() const; // 生成默认属性
     void initialize_default_schedule(); // 初始化默认调度表
     const CrowdProfile* get_current_profile(); // 获取当前时段客流档案

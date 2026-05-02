@@ -1,5 +1,6 @@
 #pragma once
 #include "Enums.h"
+#include "Common.h"
 #include <vector>
 #include <string>
 #include <queue>
@@ -90,4 +91,17 @@ public:
     std::string get_state_string() const; // 获取状态中文名
     double get_travel_time() const { return exit_time - spawn_time; } // 计算通行时间
     AbstractNode* getNode(int index) const; // 通过图引用获取节点
+
+    // 暴露给 GUI 的只读接口
+    int getFloor() const;
+    MYPOINT getPosition() const;
+    PassengerState getState() const { return state; }
+    int getCurrentEdgeFrom() const { return current_edge_from; }
+    int getCurrentEdgeTo() const { return current_edge_to; }
+    double getTransitProgress() const; // 返回边上的移动进度 0.0~1.0
+
+    // 防迷路兜底函数
+    std::string findAppropriateTarget(const SubwayGraph& graph);
+    std::string findNearestPlatform(const SubwayGraph& graph);
+    std::string findNearestStair(const SubwayGraph& graph);
 };

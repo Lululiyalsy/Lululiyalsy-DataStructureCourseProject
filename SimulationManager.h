@@ -51,6 +51,10 @@ private:
     int totalTrainArrivals = 0;               // 列车到达总数
 
 public:
-    SimulationManager(SubwayGraph& g, int maxOnline = 2500); // 构造函数
-    void run(int steps); // 运行仿真
+    SimulationManager(SubwayGraph& g, int maxOnline = 2500); // 构造函数，起始时间改为7点
+    void stepOnce(); // 只跑一帧的逻辑
+    const std::vector<Passenger>& getPassengers() const { return passengers; } // 供 GUI 拉取画面数据
+    VirtualClock& getClock() { return clock; } // 供 GUI 显示时间
+    SubwayGraph& getGraph() { return graph; } // 供 UI 绘制地图
+    void exportFinalReport(); // 仿真结束后的数据导出
 };

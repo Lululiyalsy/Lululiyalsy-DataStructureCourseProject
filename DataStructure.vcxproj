@@ -135,6 +135,7 @@
     <ClCompile Include="SimulationManager.cpp" />
     <ClCompile Include="SubwayGraph.cpp" />
     <ClCompile Include="temp.cpp" />
+    <ClCompile Include="UI.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="subway_config.csv" />
@@ -148,6 +149,7 @@
     <ClInclude Include="SimEnvironment.h" />
     <ClInclude Include="SimulationManager.h" />
     <ClInclude Include="SubwayGraph.h" />
+    <ClInclude Include="UI.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

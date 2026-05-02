@@ -404,11 +404,40 @@ bool Passenger::update(double dt, int current_node_load, int current_node_capaci
                            }
                        }
                        else {
-                           if (current_grid_x >= 0 && current_grid_y >= 0) {
-                               current_node->releaseCell(current_grid_x, current_grid_y);
+                           // 路径终点，重新规划路径
+                           if (current_node->getTypeCode() != "EXIT" && current_node->getTypeCode() != "PLATFORM") {
+                               // 不是出口或站台，重新规划路径
+                               std::string currentId = graph.getId(current_node_id);
+                               std::string newTargetId = findAppropriateTarget(graph);
+                               if (!newTargetId.empty()) {
+                                   std::vector<int> newPath = graph.findPath(currentId, newTargetId, pathStrategy);
+                                   if (!newPath.empty()) {
+                                       setPath(newPath);
+                                       state = PassengerState::PATH_FOLLOWING;
+                                   } else {
+                                       // 无法规划新路径，离开系统
+                                       if (current_grid_x >= 0 && current_grid_y >= 0) {
+                                           current_node->releaseCell(current_grid_x, current_grid_y);
+                                       }
+                                       state = PassengerState::LEFT;
+                                       exit_time = spawn_time + real_travel_timer;
+                                   }
+                               } else {
+                                   // 没有合适的目标，离开系统
+                                   if (current_grid_x >= 0 && current_grid_y >= 0) {
+                                       current_node->releaseCell(current_grid_x, current_grid_y);
+                                   }
+                                   state = PassengerState::LEFT;
+                                   exit_time = spawn_time + real_travel_timer;
+                               }
+                           } else {
+                               // 到达出口或站台，离开系统
+                               if (current_grid_x >= 0 && current_grid_y >= 0) {
+                                   current_node->releaseCell(current_grid_x, current_grid_y);
+                               }
+                               state = PassengerState::LEFT;
+                               exit_time = spawn_time + real_travel_timer;
                            }
-                           state = PassengerState::LEFT;
-                           exit_time = spawn_time + real_travel_timer;
                        }
                    }
                }
@@ -639,4 +668,68 @@ std::string Passenger::get_state_string() const {
     case PassengerState::COLLIDING: return "\u78b0\u649e\u7b49\u5f85";
     default: return "\u672a\u77e5";
     }
+}
+
+int Passenger::getFloor() const {
+    if (graphRef) {
+        const auto& node = graphRef->getNode(current_node_id);
+        return node ? node->getFloor() : 0;
+    }
+    return 0;
+}
+
+MYPOINT Passenger::getPosition() const {
+    if (graphRef) {
+        const auto& node = graphRef->getNode(current_node_id);
+        return node ? node->getPos() : MYPOINT{0, 0};
+    }
+    return MYPOINT{0, 0};
+}
+
+double Passenger::getTransitProgress() const {
+    return std::min(1.0, transit_timer / 10.0);
+}
+
+std::string Passenger::findAppropriateTarget(const SubwayGraph& graph) {
+    std::string exitId = findNearestExit(graph);
+    if (!exitId.empty()) return exitId;
+    std::string platformId = findNearestPlatform(graph);
+    if (!platformId.empty()) return platformId;
+    std::string stairId = findNearestStair(graph);
+    if (!stairId.empty()) return stairId;
+    return "";
+}
+
+std::string Passenger::findNearestPlatform(const SubwayGraph& graph) {
+    double minDistance = std::numeric_limits<double>::max();
+    std::string nearestPlatform = "";
+    for (const auto& node : graph.getAllNodes()) {
+        if (node->getTypeCode() == "PLATFORM") {
+            MYPOINT nodePos = node->getPos();
+            MYPOINT currentPos = getPosition();
+            double distance = std::sqrt(std::pow(nodePos.x - currentPos.x, 2) + std::pow(nodePos.y - currentPos.y, 2));
+            if (distance < minDistance) {
+                minDistance = distance;
+                nearestPlatform = node->getId();
+            }
+        }
+    }
+    return nearestPlatform;
+}
+
+std::string Passenger::findNearestStair(const SubwayGraph& graph) {
+    double minDistance = std::numeric_limits<double>::max();
+    std::string nearestStair = "";
+    for (const auto& node : graph.getAllNodes()) {
+        if (node->getTypeCode() == "STAIR") {
+            MYPOINT nodePos = node->getPos();
+            MYPOINT currentPos = getPosition();
+            double distance = std::sqrt(std::pow(nodePos.x - currentPos.x, 2) + std::pow(nodePos.y - currentPos.y, 2));
+            if (distance < minDistance) {
+                minDistance = distance;
+                nearestStair = node->getId();
+            }
+        }
+    }
+    return nearestStair;
 }

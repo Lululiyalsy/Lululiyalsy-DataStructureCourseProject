@@ -14,7 +14,7 @@ class AbstractNode {
 protected:
     std::string id;                 // 节点唯一标识
     int floor;                      // 所在楼层
-    POINT pos;                      // 位置坐标
+    MYPOINT pos;                      // 位置坐标
     int capacity;                   // 最大容量
     int currentLoad;                // 当前人数
     double baseVelocity;            // 基础移动速度
@@ -33,13 +33,13 @@ protected:
     double cellSize;              // 单元格尺寸（米）
 
 public:
-    AbstractNode(const std::string& nodeId, int nodeFloor, POINT position, int cap,
+    AbstractNode(const std::string& nodeId, int nodeFloor, MYPOINT position, int cap,
         double vel, double sensitivity = 1.0, double sRate = 1.0, int maxServ = 1);
     virtual ~AbstractNode() = default;
 
     std::string getId() const { return id; }
     int getFloor() const { return floor; }
-    POINT getPos() const { return pos; }
+    MYPOINT getPos() const { return pos; }
     int getCapacity() const { return capacity; }
     int getCurrentLoad() const { return currentLoad; }
     double getBaseVelocity() const { return baseVelocity; }
@@ -52,7 +52,7 @@ public:
 
     void setId(const std::string& val) { id = val; }
     void setFloor(int val) { floor = val; }
-    void setPos(const POINT& val) { pos = val; }
+    void setPos(const MYPOINT& val) { pos = val; }
     void setCapacity(int val) { if (val > 0) capacity = val; }
     void setBaseVelocity(double val) { if (val > 0) baseVelocity = val; }
     void setCongestionSensitivity(double val) { if (val >= 1.0 && val <= 3.0) congestionSensitivity = val; }
@@ -98,7 +98,7 @@ public:
 // 站厅节点
 class HallNode : public AbstractNode {
 public:
-    HallNode(const std::string& id, int floor, POINT pos, int cap, double vel, double sens)
+    HallNode(const std::string& id, int floor, MYPOINT pos, int cap, double vel, double sens)
         : AbstractNode(id, floor, pos, cap, vel, sens, 2.0, 1) {}
     std::string getTypeName() const override { return "\u7ad9\u5385"; }
     std::string getTypeCode() const override { return "HALL"; }
@@ -111,8 +111,8 @@ public:
     int scannerCount;           // 扫描仪数量
     double checkTimePerPerson;  // 每人检查时间
     bool hasBannedItem;         // 是否有违禁品
-    SecurityNode(const std::string& id, int floor, POINT pos, int cap, double vel, double sens, int scanners, double timePerPerson, bool banned)
-        : AbstractNode(id, floor, pos, cap, vel, sens, 1.0 / timePerPerson, scanners),
+    SecurityNode(const std::string& id, int floor, MYPOINT pos, int cap, double vel, double sens, int scanners, double timePerPerson, bool banned)
+        : AbstractNode(id, floor, pos, cap, vel, sens, 5.0 / timePerPerson, scanners),
         scannerCount(scanners), checkTimePerPerson(timePerPerson), hasBannedItem(banned) {}
     double getServiceInterval() const override { return checkTimePerPerson; }
     std::string getTypeName() const override { return "\u5b89\u68c0"; }
@@ -127,8 +127,8 @@ public:
     int windowCount;            // 窗口数量
     double buyTimePerPerson;    // 每人购票时间
     bool hasAutoMachine;        // 是否有自助机
-    TicketNode(const std::string& id, int floor, POINT pos, int cap, double vel, double sens, int windows, double timePerPerson, bool autoMachine)
-        : AbstractNode(id, floor, pos, cap, vel, sens, 1.0 / timePerPerson, windows),
+    TicketNode(const std::string& id, int floor, MYPOINT pos, int cap, double vel, double sens, int windows, double timePerPerson, bool autoMachine)
+        : AbstractNode(id, floor, pos, cap, vel, sens, 5.0 / timePerPerson, windows),
         windowCount(windows), buyTimePerPerson(timePerPerson), hasAutoMachine(autoMachine) {}
     double getServiceInterval() const override { return buyTimePerPerson; }
     std::string getTypeName() const override { return "\u552e\u7968"; }
@@ -142,8 +142,8 @@ class GateNode : public AbstractNode {
 public:
     int gateCount;              // 闸机数量
     bool isBidirectional;       // 是否双向
-    GateNode(const std::string& id, int floor, POINT pos, int cap, double vel, double sens, int gates, bool bidir)
-        : AbstractNode(id, floor, pos, cap, vel, sens, 1.0, gates),
+    GateNode(const std::string& id, int floor, MYPOINT pos, int cap, double vel, double sens, int gates, bool bidir)
+        : AbstractNode(id, floor, pos, cap, vel, sens, 5.0, gates),
         gateCount(gates), isBidirectional(bidir) {}
     double getServiceInterval() const override { return 1.0; }
     std::string getTypeName() const override { return "\u95f8\u673a"; }
@@ -159,7 +159,7 @@ public:
     std::string connectedStreet;// 连接街道
     bool isOneWay;              // 是否单向
     int totalExits;             // 总出口数
-    ExitNode(const std::string& id, int floor, POINT pos, int cap, double vel, double sens, const std::string& name, const std::string& street, bool oneWay, int total)
+    ExitNode(const std::string& id, int floor, MYPOINT pos, int cap, double vel, double sens, const std::string& name, const std::string& street, bool oneWay, int total)
         : AbstractNode(id, floor, pos, cap, vel, sens, 1.0, total),
         exitName(name), connectedStreet(street), isOneWay(oneWay), totalExits(total) {}
     double getServiceInterval() const override { return 1.0; }
@@ -181,7 +181,7 @@ public:
     double doorOpenTimer;       // 车门开启计时器
     static constexpr double DOOR_OPEN_DURATION = 30.0; // 车门开启持续时间
 
-    PlatformNode(const std::string& id, int floor, POINT pos, int cap, double vel, double sens,
+    PlatformNode(const std::string& id, int floor, MYPOINT pos, int cap, double vel, double sens,
         const std::string& line, int dir, int waitCap, bool screenDoor, double trainIn)
         : AbstractNode(id, floor, pos, cap, vel, sens, 0.5, 1),
         lineName(line), direction(dir), waitCap(waitCap), hasScreenDoor(screenDoor),
@@ -208,7 +208,7 @@ private:
 class StairNode : public AbstractNode {
 public:
     int stepCount;              // 台阶数
-    StairNode(const std::string& id, int floor, POINT pos, int cap, double vel, double sens, int steps)
+    StairNode(const std::string& id, int floor, MYPOINT pos, int cap, double vel, double sens, int steps)
         : AbstractNode(id, floor, pos, cap, vel, sens, 0.8, 2), stepCount(steps) {}
     std::string getTypeName() const override { return "\u697c\u68af"; }
     std::string getTypeCode() const override { return "STAIR"; }
