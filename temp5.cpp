@@ -1784,10 +1784,9 @@ public:
     void setPath(const std::vector<int> &calculatedPath)
     {
         path = calculatedPath;
-        if (!path.empty())
-        {
+        if (!path.empty()) {
             current_path_index = 0;
-            target_node_id = (path.size() > 1) ? path[1] : path[0];
+            target_node_id = path.back(); // 【终极修复】永远将最终目的地作为目标，绝不指向中间节点！
         }
     }
 
@@ -2335,7 +2334,7 @@ public:
                         }
                     }
                         }
-                    }
+                    
                 }
             }
         }
