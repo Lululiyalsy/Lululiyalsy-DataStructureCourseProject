@@ -130,7 +130,7 @@ void SimulationStatistics::exportF4Data(const std::string& nodeFile, const std::
 }
 
 SimulationManager::SimulationManager(SubwayGraph& g, int maxOnline)
-    : clock(1, 7), generator(clock, g, maxOnline), sim_time(0.0), dt(1.0), graph(g) {} // 起始时间改为7点
+    : clock(1, 5), generator(clock, g, maxOnline), sim_time(0.0), dt(1.0), graph(g) {} // 起始时间改为7点
 
 void SimulationManager::stepOnce() {
     for (auto& node : graph.getAllNodes()) {

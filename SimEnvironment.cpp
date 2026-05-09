@@ -184,7 +184,7 @@ void PassengerGenerator::initialize_default_schedule() {
     weekday_offpeak.end_second = TimeSlot::time_to_seconds(17, 0);
     weekday_offpeak.day_mask = TimeSlot::weekday_mask();
     weekday_offpeak.profile.name = "\u5de5\u4f5c\u65e5\u5e73\u5cf0";
-    weekday_offpeak.profile.arrival_rate = 5.0;
+    weekday_offpeak.profile.arrival_rate = 4.0;
     weekday_offpeak.profile.familiarity_min = 0.6f; weekday_offpeak.profile.familiarity_max = 0.9f;
     weekday_offpeak.profile.patience_min = 0.6f; weekday_offpeak.profile.patience_max = 0.9f;
     weekday_offpeak.profile.luggage_prob = 0.3f; weekday_offpeak.profile.commute_ratio = 0.5f;
@@ -195,7 +195,7 @@ void PassengerGenerator::initialize_default_schedule() {
     weekend_peak.end_second = TimeSlot::time_to_seconds(20, 0);
     weekend_peak.day_mask = TimeSlot::weekend_mask();
     weekend_peak.profile.name = "\u5468\u672b\u9ad8\u5cf0";
-    weekend_peak.profile.arrival_rate = 5.0;
+    weekend_peak.profile.arrival_rate = 4.0;
     weekend_peak.profile.familiarity_min = 0.3f; weekend_peak.profile.familiarity_max = 0.7f;
     weekend_peak.profile.patience_min = 0.7f; weekend_peak.profile.patience_max = 1.0f;
     weekend_peak.profile.luggage_prob = 0.5f; weekend_peak.profile.commute_ratio = 0.2f;
@@ -205,7 +205,7 @@ void PassengerGenerator::initialize_default_schedule() {
     default_slot.start_second = 0; default_slot.end_second = 86400;
     default_slot.day_mask = TimeSlot::daily_mask();
     default_slot.profile.name = "\u9ed8\u8ba4\u5e73\u5cf0";
-    default_slot.profile.arrival_rate = 4.0;
+    default_slot.profile.arrival_rate = 3.0;
     schedule.push_back(default_slot);
 }
 

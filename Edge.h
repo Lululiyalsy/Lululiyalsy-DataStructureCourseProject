@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // 边（通道）类
 class Edge {
